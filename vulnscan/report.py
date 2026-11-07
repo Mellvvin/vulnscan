@@ -56,6 +56,26 @@ def merge_docs(docs: List[dict]) -> dict:
         base.setdefault("warnings", []).extend(d.get("warnings", []))
         for k, v in (d.get("sources") or {}).items():
             base.setdefault("sources", {}).setdefault(k, v)
+        incoming_coverage = d.get("coverage") or {}
+        if incoming_coverage:
+            merged_coverage = base.setdefault("coverage", {})
+            for section in ("network", "package_audit"):
+                incoming = incoming_coverage.get(section)
+                if not incoming:
+                    continue
+                current = merged_coverage.get(section)
+                if not current:
+                    merged_coverage[section] = json.loads(json.dumps(incoming))
+                    continue
+                old_runs = current.get("runs") or [{k: v for k, v in current.items() if k != "runs"}]
+                new_runs = incoming.get("runs") or [{k: v for k, v in incoming.items() if k != "runs"}]
+                runs, seen_runs = [], set()
+                for run in old_runs + new_runs:
+                    key = json.dumps(run, sort_keys=True)
+                    if key not in seen_runs:
+                        seen_runs.add(key)
+                        runs.append(run)
+                current["runs"] = runs
     base["summary"] = {s: sum(1 for f in base["findings"] if f["severity"] == s) for s in SEV_ORDER}
     return base
 
@@ -288,6 +308,9 @@ def _finding_html(f: dict, idx: int) -> str:
         tags.append('<span class="tag">Fix available</span>')
     if "unrated" in str(d.get("severity_basis", "")):
         tags.append('<span class="tag">Unrated by source</span>')
+    exposure = d.get("exposure") or {}
+    if exposure.get("scope"):
+        tags.append(f'<span class="tag">{esc(exposure["scope"])} scope</span>')
     text = " ".join(str(x) for x in [f["title"], f["host"], f["owasp"], f["owasp_name"], f.get("cwe", ""),
                                       " ".join(d.get("cves", [])), d.get("component", "")]).lower()
 
@@ -314,6 +337,13 @@ def _finding_html(f: dict, idx: int) -> str:
     row("Weakness", esc(", ".join(d.get("cwes", [])) if is_pkg else f.get("cwe", "")))
     row("OWASP", esc(f"{f['owasp']} {f['owasp_name']}") +
         (f" <span class=\"sub\">({esc(d['owasp_basis'])})</span>" if d.get("owasp_basis") else ""))
+    if exposure:
+        scope_detail = f"{exposure.get('scope', 'unknown')} ({exposure.get('address', 'address unavailable')})"
+        if exposure.get("basis"):
+            scope_detail += f" — {exposure['basis']}"
+        if exposure.get("observation"):
+            scope_detail += f"; {exposure['observation']}"
+        row("Exposure scope", esc(scope_detail))
     if f.get("evidence"):
         row("Evidence", f"<code>{esc(f['evidence'])}</code>")
 
@@ -335,6 +365,56 @@ def _finding_html(f: dict, idx: int) -> str:
         f'<div class="panel"><p>{esc(f["description"])}</p><dl>{"".join(rows)}</dl>'
         f'<h3>How to fix</h3><p>{esc(remediation)}</p>{cmd_html}'
         f'{"<h3>References</h3><ul class=refs>" + refs + "</ul>" if refs else ""}</div></details>')
+
+
+def _coverage_section(doc: dict) -> str:
+    coverage = doc.get("coverage") or {}
+    network = coverage.get("network") or {}
+    package = coverage.get("package_audit") or {}
+    hosts = doc.get("hosts", [])
+    host_rows = []
+    for host in hosts:
+        exposure = host.get("exposure") or {}
+        ports = ", ".join(f"{p.get('port')}/tcp" for p in host.get("open_ports", [])) or "none found"
+        host_rows.append("<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+            esc(host.get("host", "")), esc(host.get("address", "")),
+            esc(exposure.get("scope", "not recorded")), esc(ports)))
+    table = ("<table><tr><th>Target</th><th>Address</th><th>Scope</th><th>Open TCP ports</th></tr>"
+             + "".join(host_rows) + "</table>") if host_rows else ""
+    summaries = []
+    network_runs = network.get("runs") or ([network] if network else [])
+    for run in network_runs:
+        text = f"Network checks: {run.get('status', 'not recorded')}"
+        if run.get("scanner_vantage"):
+            text += f" from {run['scanner_vantage']}"
+        if run.get("target"):
+            text += f" on {run['target']} ({run.get('scope', 'scope unknown')})"
+        port_count = run.get("selected_tcp_ports", run.get("selected_tcp_ports_per_host"))
+        if port_count is not None:
+            suffix = " per host" if "selected_tcp_ports_per_host" in run else ""
+            text += f"; {port_count} selected TCP ports{suffix}"
+        if run.get("web_checks"):
+            text += f"; HTTP(S) checks {run['web_checks']}"
+        summaries.append(f"<p>{esc(text)}.</p>")
+    package_runs = package.get("runs") or ([package] if package else [])
+    for run in package_runs:
+        text = (f"Software checks: {run.get('package_versions', 0)} unique package versions; "
+                f"{run.get('unchecked_package_versions', 0)} unchecked; "
+                f"{run.get('unavailable_advisory_records', 0)} advisory records unavailable.")
+        if run.get("unsupported_ecosystems"):
+            text += " OSV coverage missing for: " + ", ".join(run["unsupported_ecosystems"]) + "."
+        summaries.append(f"<p>{esc(text)}</p>")
+    skipped = [item for run in network_runs + package_runs for item in run.get("skipped_checks", [])]
+    skipped_html = ("<h3>Checks not run or not covered</h3><ul>" +
+                    "".join(f"<li>{esc(item)}</li>" for item in dict.fromkeys(skipped)) + "</ul>") if skipped else ""
+    limitations = [item for run in network_runs for item in run.get("limitations", [])]
+    limitations_html = ("<h3>Interpretation limits</h3><ul>" +
+                        "".join(f"<li>{esc(item)}</li>" for item in dict.fromkeys(limitations)) + "</ul>") \
+        if limitations else ""
+    if not (table or summaries or skipped_html or limitations_html):
+        return ""
+    return ("<section><h2>Coverage and skipped checks</h2><div class=\"card tw\">" +
+            "".join(summaries) + table + skipped_html + limitations_html + "</div></section>")
 
 
 def _remediation_plan(doc: dict) -> str:
@@ -438,8 +518,10 @@ def render_html(doc: dict) -> str:
 
     osv_s, kev_s = sources.get("osv", {}), sources.get("kev", {})
     data_rows = [
-        ("Vulnerability matching", f"OSV.dev: {osv_s.get('package_versions', 0)} package versions checked, "
-                                   f"{osv_s.get('records', 0)} advisories read" if osv_s else "not run"),
+        ("Vulnerability matching", f"OSV.dev: {osv_s.get('package_versions', 0)} package versions considered, "
+                                   f"{osv_s.get('unchecked', 0)} unchecked, "
+                                   f"{osv_s.get('records', 0)} advisories read, "
+                                   f"{osv_s.get('unavailable_records', 0)} records unavailable" if osv_s else "not run"),
         ("OWASP mapping", f"OWASP Top 10:{edition}, {owasp_origin.get('cwes_mapped', 0)} CWEs mapped "
                           f"({owasp_origin.get('origin', '?')}, fetched {str(owasp_origin.get('fetched_at', ''))[:10]})"
          if owasp_origin else f"OWASP Top 10:{edition}"),
@@ -460,6 +542,7 @@ def render_html(doc: dict) -> str:
         for r in orows if r["count"])
     list_html = "".join(_finding_html(f, i) for i, f in enumerate(findings)) or \
         '<p class="empty">Nothing to list.</p>'
+    coverage_html = _coverage_section(doc)
 
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -494,6 +577,7 @@ def render_html(doc: dict) -> str:
 {list_html}
 <p id="none" class="empty" hidden>No findings match these filters.</p></section>
 {targets}
+{coverage_html}
 <section><h2>Method and data</h2>
 <div class="card tw"><table>{data_html}</table></div>
 <p class="note">Vulnerabilities are matched by exact installed version against published advisories, so a
@@ -523,6 +607,36 @@ def render_markdown(doc: dict) -> str:
         out.append(f"> Note: {w}")
     out += ["", "## Severity", "", "| Severity | Findings |", "|---|---:|"]
     out += [f"| {SEV_WORD[s]} | {st['counts'][s]} |" for s in SEV_ORDER]
+    coverage = doc.get("coverage") or {}
+    network = coverage.get("network") or {}
+    package = coverage.get("package_audit") or {}
+    network_runs = network.get("runs") or ([network] if network else [])
+    package_runs = package.get("runs") or ([package] if package else [])
+    if network_runs or package_runs or doc.get("hosts"):
+        out += ["", "## Coverage and skipped checks", ""]
+        for run in network_runs:
+            scope = f" on {run.get('target')} ({run.get('scope')})" if run.get("target") else ""
+            port_count = run.get("selected_tcp_ports", run.get("selected_tcp_ports_per_host", 0))
+            suffix = " per host" if "selected_tcp_ports_per_host" in run else ""
+            vantage = f" from {run['scanner_vantage']}" if run.get("scanner_vantage") else ""
+            out.append(f"- Network checks: {run.get('status', 'not recorded')}{vantage}{scope}; "
+                       f"{port_count} selected TCP ports{suffix}; "
+                       f"HTTP(S): {run.get('web_checks', 'not recorded')}.")
+        for run in package_runs:
+            out.append(f"- Software checks: {run.get('package_versions', 0)} package versions; "
+                       f"{run.get('unchecked_package_versions', 0)} unchecked; "
+                       f"{run.get('unavailable_advisory_records', 0)} advisory records unavailable.")
+            if run.get("unsupported_ecosystems"):
+                out.append("- OSV coverage missing for: " + ", ".join(run["unsupported_ecosystems"]) + ".")
+        for host in doc.get("hosts", []):
+            exposure = host.get("exposure") or {}
+            ports = ", ".join(f"{p.get('port')}/tcp" for p in host.get("open_ports", [])) or "none found"
+            out.append(f"- {host.get('host')} ({host.get('address')}): "
+                       f"{exposure.get('scope', 'scope not recorded')}; open TCP ports: {ports}.")
+        skipped = [item for run in network_runs + package_runs for item in run.get("skipped_checks", [])]
+        out.extend(f"- Not run/not covered: {_md(item)}" for item in dict.fromkeys(skipped))
+        limitations = [item for run in network_runs for item in run.get("limitations", [])]
+        out.extend(f"- Interpretation limit: {_md(item)}" for item in dict.fromkeys(limitations))
     out += ["", f"## OWASP Top 10:{edition}", "", "| Category | Findings | High or Critical |", "|---|---:|---:|"]
     for r in owasp_rows(doc):
         label = f"{r['id']} {r['name']}" + ("" if r["testable"] else " (not assessable by scanning)")

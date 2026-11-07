@@ -23,6 +23,14 @@ def test_cli_end_to_end_outputs(lab_port, tmp_path):
     assert data["meta"]["owasp_edition"] == "2025"
     assert data["summary"]["HIGH"] >= 1
     assert data["hosts"][0]["open_ports"][0]["port"] == lab_port
+    assert data["hosts"][0]["exposure"]["scope"] == "localhost"
+    coverage = data["coverage"]["network"]
+    assert coverage["status"] == "completed" and coverage["method"] == "TCP connect"
+    assert coverage["selected_tcp_ports_per_host"] == data["meta"]["ports_per_host"]
+    assert "UDP services are not tested" in coverage["skipped_checks"]
+    html = (out / "report.html").read_text(encoding="utf-8")
+    assert "Coverage and skipped checks" in html and "localhost" in html
+    assert f"{data['meta']['ports_per_host']} selected TCP ports per host" in html
     rows = (out / "findings.tsv").read_text().splitlines()
     assert rows[0].startswith("severity\thost\tport")
     assert all(len(r.split("\t")) == 10 for r in rows)

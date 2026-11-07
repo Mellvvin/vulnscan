@@ -31,9 +31,9 @@ python3 -m vulnscan doctor                    py -m vulnscan doctor
 python3 -m vulnscan audit                     py -m vulnscan audit
 ```
 
-1. **`doctor` first.** It checks that every data source is reachable and that your OS is recognised, and tells you what is missing. Run it once on each new machine.
-2. **`audit`** inventories this machine, matches it against live vulnerability data, and writes `reports/<timestamp>/report.html`. The first run downloads advisory data (a minute or two on a large system); later runs use the cache.
-3. Open `report.html`.
+1. **`doctor` first.** It checks required and optional data sources, local inventory tools, and whether OSV supports this OS release. It reports optional-source failures as warnings and required-source failures separately.
+2. **`audit`** inventories supported software, matches it against vulnerability data, and writes `reports/<timestamp>/report.html`. The first run downloads advisory data; later runs use the cache. Results include discovered inventory, unchecked versions, unavailable sources, and checks not run.
+3. Open `report.html` and read its **Coverage and skipped checks** section before treating a zero-finding result as clean.
 
 ```bash
 python3 -m vulnscan audit --docker nginx:1.18 --docker httpd:2.4.49   # audit container images
@@ -55,6 +55,12 @@ Derivatives such as Kali or Mint are not in OSV under their own name. Tell the t
 ### Docker on Windows
 
 `--docker IMAGE` runs the image briefly (`docker run --rm`) to read its package database, so you can audit images without installing anything inside them. A ready-made lab of intentionally old and vulnerable images is in `lab/docker-compose.yml` (bound to 127.0.0.1 only); `scripts/lab_docker.sh` runs it end to end in WSL or Git Bash, or use the commands in the compose file's header from PowerShell. Distroless images have no package tools and cannot be audited.
+
+## How network exposure is reported
+
+`scan` classifies each tested destination address as **localhost** (loopback), **LAN** (private or link-local), **public** (globally routable), or **special-use**. A service finding includes the destination address and a successful TCP-connect observation as evidence. Datastore names are marked **potential** because the scanner infers them from conventional port numbers and does not verify the application protocol. This describes what this scanner could reach; it does not identify the service's bind address or prove reachability from every device in that class, through a firewall, or from the public internet.
+
+The network portion of a normal `audit` deliberately tests `127.0.0.1` only. A MongoDB result there means the local scanner connected to MongoDB on localhost; it is **not** evidence that LAN clients or the internet can connect. To test a LAN-facing path, run `scan` against the host's private IP from another authorized device. Public targets require `--allow-public` and written authorization; even then a successful scan proves reachability only from that scanner's vantage point. Reports list the selected TCP ports and explicitly identify UDP, unselected ports, disabled web checks, and external LAN/public reachability as not covered where applicable.
 
 ## How findings are mapped to the OWASP Top 10
 
@@ -86,18 +92,19 @@ Everything is cached in `~/.cache/vulnscan` (Windows: `%LOCALAPPDATA%\vulnscan`;
 
 ## Tested how
 
-`python -m pytest` runs 68 tests: version comparison, CVSS maths, OWASP and CWE parsing, inventory parsers, the full audit pipeline against fixtures that follow the documented OSV / KEV / EPSS / CVE.org response shapes, report output (including escaping of hostile advisory text), the CLI and the Bash scripts. The OWASP, CISA KEV and CVE.org integrations were also exercised against the live services. ShellCheck is clean.
+`python -m pytest` covers version comparison, CVSS maths, OWASP and CWE parsing, inventory parsers, the audit pipeline with fixtures for OSV / KEV / EPSS / CVE.org, report escaping, exposure classification, unavailable-data behavior, and CLI output. Windows, Linux, and macOS inventory branches have regression tests; those tests simulate platform identity and do not replace running the suite on each OS. The GitHub Actions workflow runs Linux on Python 3.9, 3.12, and 3.13; Windows is informational (`continue-on-error`), and there is no macOS CI job.
 
 Known gaps, stated plainly:
-- The OSV client follows OSV's documented API and is covered by fixtures; confirm it on your network with `vulnscan doctor`, which queries OSV live.
-- The Docker image collector and the Windows CI job have not been run by the author yet.
+- Confirm live OSV connectivity and release coverage on your network with `vulnscan doctor`.
+- Native Windows and macOS operating-system package inventories are not supported; only available Python/npm packages, project files, and Docker images can be audited there. The Windows CI job is informational.
+- Docker image collection has not been verified against a live Docker engine.
 - `lab/vuln_server.py` is a tiny test target for the *scan* half. It is not evidence for the audit half.
 
 ## Limitations
 
 - A finding means a published advisory applies to the **installed version**. It does not prove the flaw is reachable on that system, and distributions sometimes backport fixes without changing version numbers (OSV's distro advisories account for most of this).
-- Windows application inventory is not covered (OSV has no Windows software feed): audit Python/npm packages, project files, Docker images, and run `vulnscan` inside WSL or VMs.
-- Port scanning is TCP connect only; web checks are unauthenticated and do not crawl. It complements, and does not replace, a penetration test.
+- **Native Windows and macOS operating-system package inventory is not covered** (OSV has no supported native feed here). Audit available Python/npm packages, project files, Docker images, or run `vulnscan` inside a supported Linux distribution, WSL, or a VM.
+- The built-in host exposure check in `audit` targets localhost only. Use `scan` from an appropriate vantage point to check LAN/public paths. Port scanning is TCP connect only; web checks are unauthenticated and do not crawl. It complements, and does not replace, a penetration test.
 - End-of-life OS releases may have no advisory data. The tool detects this with a canary lookup and says so instead of reporting a clean result.
 
 ## Legal and ethical use

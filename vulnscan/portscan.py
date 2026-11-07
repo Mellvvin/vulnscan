@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
 from .models import Finding, PortInfo, Severity
+from .scope import classify_exposure
 
 TOP_PORTS = [
     21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 465, 587, 993, 995,
@@ -211,7 +212,7 @@ for _port, _name in [(3306, "MySQL/MariaDB"), (5432, "PostgreSQL"), (1433, "Micr
                      (1521, "Oracle DB"), (6379, "Redis"), (27017, "MongoDB"),
                      (9200, "Elasticsearch"), (11211, "Memcached")]:
     RISKY_SERVICES[_port] = (
-        "PORT-DATASTORE", f"{_name} reachable over the network", Severity.HIGH,
+        "PORT-DATASTORE", f"Potential {_name} service reachable at target", Severity.HIGH,
         "misconfig", "CWE-284",
         "Data stores are rarely meant to be reachable beyond the application tier, and "
         "several (Redis, Memcached, MongoDB, Elasticsearch) have historically shipped "
@@ -221,15 +222,29 @@ for _port, _name in [(3306, "MySQL/MariaDB"), (5432, "PostgreSQL"), (1433, "Micr
     )
 
 
-def service_findings(host: str, info: PortInfo) -> List[Finding]:
+def service_findings(host: str, info: PortInfo, address: Optional[str] = None) -> List[Finding]:
     rule: Optional[tuple] = RISKY_SERVICES.get(info.port)
     if not rule:
         return []
     check_id, title, severity, category, cwe, desc, fix = rule
+    exposure = classify_exposure(address) if address else {
+        "scope": "unknown", "address": "", "basis": "target address was not supplied"}
+    scope_name = {"localhost": "localhost", "lan": "private/LAN address",
+                  "public": "public-routable address", "special": "special-use address",
+                  "unknown": "unclassified address"}[exposure["scope"]]
+    if check_id == "PORT-DATASTORE":
+        title = title.replace("at target", f"at {scope_name}")
+        desc += " The service label is inferred from the conventional TCP port; no protocol handshake confirmed it."
+    observed = (f"TCP connect from this scanner to {address}:{info.port} succeeded; "
+                f"{exposure['basis']}." if address else "TCP connect succeeded; target address was not recorded.")
+    if check_id == "PORT-DATASTORE":
+        observed += f" {info.service} is inferred from the port number; protocol not verified."
     return [Finding(
         host=host, port=info.port, check_id=check_id, title=title, severity=severity,
         category=category, cwe=cwe,
-        description=desc + " Exposure depends on where the scanner sits relative to the target.",
-        remediation=fix, evidence=f"{info.service} open on {info.port}/tcp"
-        + (f" ({info.banner})" if info.banner else ""),
+        description=(desc + f" Observed from this scanner at {scope_name} scope. This proves reachability "
+                     "from this vantage point only; it does not establish reachability from other LAN hosts "
+                     "or from the public internet."),
+        remediation=fix, evidence=observed,
+        extra={"exposure": {**exposure, "observation": "TCP connect succeeded from this scanner"}},
     )]

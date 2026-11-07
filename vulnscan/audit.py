@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Set, Tuple
@@ -86,9 +87,15 @@ def _gather_targets(opts: AuditOptions, runner: Runner, warnings: List[str],
             log(f"inventory: reading installed OS packages ({info.os_pretty or info.os_id}) ...")
             pkgs += inventory.collect_os_packages(info, runner)
         if opts.pip:
-            pkgs += inventory.collect_pip(runner)
+            if importlib.util.find_spec("pip") is None:
+                info.notes.append("pip is not available for this interpreter; Python packages were not inventoried")
+            else:
+                pkgs += inventory.collect_pip(runner)
         if opts.npm:
-            pkgs += inventory.collect_npm_global(runner)
+            if not inventory.shutil.which("npm"):
+                info.notes.append("npm not found; global npm packages were not inventoried")
+            else:
+                pkgs += inventory.collect_npm_global(runner)
         targets.append(TargetResult(info, pkgs))
     for image in opts.docker:
         log(f"inventory: inspecting container image {image} ...")
@@ -346,6 +353,7 @@ def run_audit(opts: AuditOptions, http: Http, cache: Cache, runner: Runner = inv
         "owasp": {"edition": opts.edition, "origin": owasp.origin, "fetched_at": owasp.fetched_at,
                   "source": owasp.source, "cwes_mapped": len(owasp.cwe_map)},
         "osv": {"package_versions": len(keys), "unchecked": unchecked, "records": len(records),
+                "unavailable_records": len(failed_ids),
                 "incomplete": bool(unchecked or failed_ids or unsupported),
                 "unsupported_ecosystems": unsupported},
         "kev": kev_meta,

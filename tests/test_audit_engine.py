@@ -161,6 +161,9 @@ def test_cli_audit_offline_reports_unchecked_packages(tmp_path, monkeypatch):
     assert rc == 3  # nothing could be checked offline: never reported as a clean result
     doc = json.loads((out / "results.json").read_text())
     assert doc["systems"][0]["packages"] == 1
+    assert doc["coverage"]["network"]["status"] == "not_applicable"
+    assert any("no host target" in item for item in doc["coverage"]["network"]["skipped_checks"])
+    assert "local host software inventory disabled by --no-host" in doc["coverage"]["package_audit"]["skipped_checks"]
     assert any("not checked" in w for w in doc["warnings"])
 
 

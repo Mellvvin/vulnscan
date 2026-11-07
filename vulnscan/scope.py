@@ -31,6 +31,28 @@ class Target:
         return self.label != self.address
 
 
+def classify_exposure(address: str) -> dict:
+    """Classify the tested destination address, not the service's bind address.
+
+    A successful connection proves reachability only from this scanner's vantage point.
+    It does not prove that a service is reachable by every host in that address class.
+    """
+    ip = ipaddress.ip_address(address)
+    if ip.is_loopback:
+        scope, basis = "localhost", f"{ip} is a loopback address"
+    elif ip.is_global:
+        scope, basis = "public", f"{ip} is globally routable"
+    else:
+        private_ranges = (ipaddress.ip_network("10.0.0.0/8"), ipaddress.ip_network("172.16.0.0/12"),
+                          ipaddress.ip_network("192.168.0.0/16"), ipaddress.ip_network("fc00::/7"))
+        is_lan = ip.is_link_local or any(ip.version == net.version and ip in net for net in private_ranges)
+        if is_lan:
+            scope, basis = "lan", f"{ip} is private or link-local"
+        else:
+            scope, basis = "special", f"{ip} is a special-use/non-global address"
+    return {"scope": scope, "address": str(ip), "basis": basis}
+
+
 def _read_target_file(path: str) -> List[str]:
     specs: List[str] = []
     with open(path, encoding="utf-8") as fh:

@@ -41,7 +41,7 @@ def scan_host(target: Target, cfg: ScanConfig, quiet: bool = False) -> HostResul
     https_available = any(p.http and p.tls for p in result.ports)
 
     for info in result.ports:
-        result.extend(service_findings(target.label, info))
+        result.extend(service_findings(target.label, info, target.address))
         result.extend(version_findings(target.label, info.port, info.banner))
 
         if info.tls:

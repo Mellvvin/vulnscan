@@ -204,16 +204,24 @@ def collect_os_packages(info: SystemInfo, runner: Runner = default_runner) -> Li
             info.notes.append("dpkg-query not found; cannot list Debian/Ubuntu packages")
             return []
         rc, out = runner(["dpkg-query", "-W", "-f", DPKG_FORMAT], 120)
+        if rc != 0:
+            info.notes.append("dpkg-query failed; Debian/Ubuntu OS packages were not inventoried")
         return parse_dpkg(out, eco) if rc == 0 else []
     if family == "Alpine":
         if not shutil.which("apk"):
+            info.notes.append("apk not found; Alpine OS packages were not inventoried")
             return []
         rc, out = runner(["apk", "list", "-I"], 120)
+        if rc != 0:
+            info.notes.append("apk query failed; Alpine OS packages were not inventoried")
         return parse_apk(out, eco) if rc == 0 else []
     if family in ("AlmaLinux", "Rocky Linux"):
         if not shutil.which("rpm"):
+            info.notes.append("rpm not found; RPM OS packages were not inventoried")
             return []
         rc, out = runner(["rpm", "-qa", "--qf", RPM_FORMAT + "\n"], 120)
+        if rc != 0:
+            info.notes.append("rpm query failed; RPM OS packages were not inventoried")
         return parse_rpm(out, eco) if rc == 0 else []
     return []
 

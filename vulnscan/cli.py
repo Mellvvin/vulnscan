@@ -191,7 +191,19 @@ def cmd_scan(args) -> int:
             "duration_seconds": round(time.monotonic() - t0, 2),
             "targets": [t.label for t in targets], "ports_per_host": len(cfg.ports),
             "hosts_with_open_ports": sum(1 for h in hosts if h.ports), "mode": "scan"}
-    return _finish(args, _out_dir(args, started), started, t0, hosts, findings, meta)
+    skipped = ["UDP services are not tested", "TCP ports outside the selected port set are not tested"]
+    if not cfg.web:
+        skipped.append("HTTP(S) application checks disabled by --no-web")
+    coverage = {"network": {
+        "status": "completed", "scanner_vantage": "this machine", "method": "TCP connect",
+        "requested_ports": args.ports, "selected_tcp_ports_per_host": len(cfg.ports),
+        "open_tcp_ports": sum(len(h.ports) for h in hosts),
+        "web_checks": "enabled" if cfg.web else "disabled", "skipped_checks": skipped,
+        "limitations": ["Reachability is confirmed only from this scanner's vantage point.",
+                        "Connectivity from another LAN client was not tested.",
+                        "A public-routable target does not prove access from the public internet."]}}
+    return _finish(args, _out_dir(args, started), started, t0, hosts, findings, meta,
+                   {"coverage": coverage})
 
 
 # ------------------------------------------------------------------ audit
@@ -222,17 +234,53 @@ def cmd_audit(args) -> int:
     hosts: List[HostResult] = []
     warnings = list(result.warnings)
     host_target = next((t for t in result.targets if t.info.kind == "host"), None)
-    if host_target is not None and not args.no_network:
+    network_coverage = {"status": "not_run", "target": None, "scope": None,
+                        "method": "TCP connect", "selected_tcp_ports": 0, "open_tcp_ports": 0,
+                        "web_checks": "not_run", "skipped_checks": []}
+    if host_target is None:
+        network_coverage["status"] = "not_applicable"
+        network_coverage["skipped_checks"].extend([
+            "local service exposure scan: no host target was included (project/image-only or --no-host)",
+            "LAN/public reachability from other vantage points is not tested by this audit",
+        ])
+        if args.no_web:
+            network_coverage["skipped_checks"].append("HTTP(S) application checks disabled by --no-web")
+    elif args.no_network:
+        network_coverage["skipped_checks"].extend([
+            "local service exposure scan disabled by --no-network",
+            "LAN/public reachability from other vantage points is not tested by this audit",
+        ])
+        if args.no_web:
+            network_coverage["skipped_checks"].append("HTTP(S) application checks disabled by --no-web")
+    else:
         try:
             targets = expand_targets(["127.0.0.1"])
-            log("checking this machine's listening services (127.0.0.1) ...")
-            hosts, _cfg = _network_scan(targets, args, args.quiet)
+            log("checking this machine's listening services on localhost (127.0.0.1) ...")
+            hosts, cfg = _network_scan(targets, args, args.quiet)
+            network_coverage.update({"status": "completed", "target": "127.0.0.1",
+                                     "scope": "localhost", "scanner_vantage": "local host",
+                                     "requested_ports": args.ports,
+                                     "selected_tcp_ports": len(cfg.ports),
+                                     "open_tcp_ports": sum(len(h.ports) for h in hosts),
+                                     "web_checks": "enabled" if cfg.web else "disabled",
+                                     "limitations": ["Only localhost was tested; service bind addresses and remote-client reachability were not inspected."]})
+            network_coverage["skipped_checks"].extend([
+                "LAN-interface reachability: not tested by the localhost-only audit scan",
+                "Public reachability: not tested by the localhost-only audit scan",
+                "UDP services are not tested",
+                "TCP ports outside the selected port set are not tested",
+            ])
+            if not cfg.web:
+                network_coverage["skipped_checks"].append("HTTP(S) application checks disabled by --no-web")
+            warnings.append("local service scan tested 127.0.0.1 only; it does not establish LAN or public reachability")
             for h in hosts:
                 for f in h.findings:
                     f.host = host_target.info.label  # report under the machine's own name
                     host_target.findings.append(f)
                     findings.append(f)
         except (ScopeError, ValueError, OSError) as exc:
+            network_coverage["status"] = "failed"
+            network_coverage["skipped_checks"].append(f"local service exposure scan failed: {exc}")
             warnings.append(f"local exposure scan skipped: {exc}")
 
     min_sev = Severity.parse(args.min_severity)
@@ -240,8 +288,32 @@ def cmd_audit(args) -> int:
     meta = {"started": started.isoformat(timespec="seconds"),
             "duration_seconds": round(time.monotonic() - t0, 2),
             "targets": [t.info.label for t in result.targets], "mode": "audit"}
+    package_skipped = []
+    if args.no_host:
+        package_skipped.append("local host software inventory disabled by --no-host")
+    if args.no_pip:
+        package_skipped.append("current-interpreter Python package inventory disabled by --no-pip")
+    if args.no_npm:
+        package_skipped.append("global npm package inventory disabled by --no-npm")
+    package_targets = []
+    for target in result.targets:
+        managers = {}
+        for package in target.packages:
+            managers[package.manager] = managers.get(package.manager, 0) + 1
+        package_targets.append({"label": target.info.label, "kind": target.info.kind,
+                                "packages_discovered": len(target.packages), "by_manager": managers,
+                                "skipped_checks": list(target.info.notes)})
+    coverage = {
+        "package_audit": {"targets": package_targets,
+                           "package_versions": result.sources["osv"]["package_versions"],
+                           "unchecked_package_versions": result.sources["osv"]["unchecked"],
+                           "unavailable_advisory_records": result.sources["osv"]["unavailable_records"],
+                           "unsupported_ecosystems": result.sources["osv"]["unsupported_ecosystems"],
+                           "skipped_checks": package_skipped},
+        "network": network_coverage,
+    }
     extra = {"systems": [t.to_dict() for t in result.targets], "sources": result.sources,
-             "warnings": warnings}
+             "warnings": warnings, "coverage": coverage}
     if not result.targets:
         print("error: nothing to audit (all targets disabled or unreadable)", file=sys.stderr)
         for w in warnings:

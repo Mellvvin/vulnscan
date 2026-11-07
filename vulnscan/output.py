@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 
 from . import __version__
 from .models import Finding, HostResult, Severity
+from .scope import classify_exposure
 
 TSV_COLUMNS = ["severity", "host", "port", "check_id", "owasp", "owasp_name", "cwe",
                "title", "remediation", "evidence"]
@@ -39,7 +40,8 @@ def write_json(path: str, meta: Dict[str, object], hosts: List[HostResult],
         "meta": {"tool": "vulnscan", "version": __version__, "owasp_edition": edition, **meta},
         "summary": {s.name: counts.get(s.name, 0) for s in sorted(Severity, reverse=True)},
         "hosts": [
-            {"host": h.host, "address": h.address, "open_ports": [p.to_dict() for p in h.ports]}
+            {"host": h.host, "address": h.address, "exposure": classify_exposure(h.address),
+             "open_ports": [p.to_dict() for p in h.ports]}
             for h in hosts
         ],
         "findings": [f.to_dict(edition) for f in sort_findings(findings)],
