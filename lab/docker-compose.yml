@@ -1,0 +1,28 @@
+# Real, widely used intentionally-vulnerable and old images, for testing vulnscan.
+# Everything is published on 127.0.0.1 only. NEVER expose these to a network.
+#
+#   docker compose -f lab/docker-compose.yml up -d
+#   python -m vulnscan scan 127.0.0.1 -p 8081-8084           # exposure + web misconfigurations
+#   python -m vulnscan audit --no-host \
+#       --docker vulnerables/web-dvwa --docker httpd:2.4.49 \
+#       --docker nginx:1.18 --docker bkimminich/juice-shop   # known CVEs in the images' software
+#   docker compose -f lab/docker-compose.yml down
+#
+# Notes
+# - These images are old on purpose. If OSV.dev has no advisory data for an image's OS release
+#   (end-of-life), vulnscan says so in the report instead of showing a clean result.
+# - Distroless/scratch images (no shell tools) cannot be audited with --docker.
+name: vulnscan-lab
+services:
+  dvwa:
+    image: vulnerables/web-dvwa
+    ports: ["127.0.0.1:8081:80"]
+  juice-shop:
+    image: bkimminich/juice-shop
+    ports: ["127.0.0.1:8082:3000"]
+  httpd-2-4-49:
+    image: httpd:2.4.49
+    ports: ["127.0.0.1:8083:80"]
+  nginx-1-18:
+    image: nginx:1.18
+    ports: ["127.0.0.1:8084:80"]
