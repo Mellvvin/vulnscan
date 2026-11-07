@@ -157,7 +157,8 @@ def test_cli_audit_offline_reports_unchecked_packages(tmp_path, monkeypatch):
     proj.mkdir()
     (proj / "requirements.txt").write_text("jinja2==2.11.2\n")
     out = tmp_path / "out"
-    rc = main(["audit", "--offline", "--no-host", "--project", str(proj), "-o", str(out), "-q"])
+    rc = main(["audit", "--offline", "--no-host", "--project", str(proj), "-o", str(out), "-q",
+               "--include-data"])
     assert rc == 3  # nothing could be checked offline: never reported as a clean result
     doc = json.loads((out / "results.json").read_text())
     assert doc["systems"][0]["packages"] == 1

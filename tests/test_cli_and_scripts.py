@@ -17,7 +17,7 @@ def run_cli(*args):
 
 def test_cli_end_to_end_outputs(lab_port, tmp_path):
     out = tmp_path / "scan"
-    proc = run_cli("127.0.0.1", "-p", str(lab_port), "-o", str(out), "-q")
+    proc = run_cli("127.0.0.1", "-p", str(lab_port), "-o", str(out), "-q", "--include-data")
     assert proc.returncode == 0, proc.stderr
     data = json.loads((out / "results.json").read_text())
     assert data["meta"]["owasp_edition"] == "2025"
@@ -36,10 +36,20 @@ def test_cli_end_to_end_outputs(lab_port, tmp_path):
     assert all(len(r.split("\t")) == 10 for r in rows)
 
 
+def test_cli_default_writes_reports_without_data_sidecars(lab_port, tmp_path):
+    out = tmp_path / "scan"
+    out.mkdir()
+    (out / "results.json").write_text("old generated data")
+    (out / "findings.tsv").write_text("old generated data")
+    proc = run_cli("127.0.0.1", "-p", str(lab_port), "-o", str(out), "-q")
+    assert proc.returncode == 0, proc.stderr
+    assert {path.name for path in out.iterdir()} == {"report.html", "report.md"}
+
+
 def test_cli_edition_switch_and_fail_on(lab_port, tmp_path):
     out = tmp_path / "scan"
     proc = run_cli("127.0.0.1", "-p", str(lab_port), "-o", str(out), "-q",
-                   "--owasp-edition", "2021", "--fail-on", "high")
+                   "--owasp-edition", "2021", "--fail-on", "high", "--include-data")
     assert proc.returncode == 2
     assert "2021" in (out / "findings.tsv").read_text()
 
@@ -52,8 +62,8 @@ def test_cli_refuses_public_target():
 @pytest.mark.skipif(BASH is None, reason="bash required")
 def test_report_and_diff_scripts(lab_port, tmp_path):
     old, new = tmp_path / "old", tmp_path / "new"
-    assert run_cli("127.0.0.1", "-p", str(lab_port), "-o", str(old), "-q").returncode == 0
-    assert run_cli("127.0.0.1", "-p", str(lab_port), "-o", str(new), "-q").returncode == 0
+    assert run_cli("127.0.0.1", "-p", str(lab_port), "-o", str(old), "-q", "--include-data").returncode == 0
+    assert run_cli("127.0.0.1", "-p", str(lab_port), "-o", str(new), "-q", "--include-data").returncode == 0
 
     rep = subprocess.run([BASH, "scripts/report.sh", str(new), "--no-color"], cwd=ROOT,
                          capture_output=True, text=True)

@@ -37,7 +37,7 @@ done < <(find "$REPORTS" -mindepth 1 -maxdepth 1 -type d -name '2*' 2>/dev/null 
 
 echo "==> vulnscan $MODE"
 set +e
-(cd "$ROOT" && "$PYTHON" -m vulnscan "$MODE" "$@" -o "$OUT")
+(cd "$ROOT" && "$PYTHON" -m vulnscan "$MODE" "$@" -o "$OUT" --include-data)
 RC=$?
 set -e
 # 0 clean, 2 = --fail-on threshold, 3 = incomplete data: still digest and archive, then propagate.

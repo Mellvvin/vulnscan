@@ -2,9 +2,9 @@
 
 Finds **known vulnerabilities in the software that is actually installed** on a machine, a container image or a project, finds **risky exposure on the network**, and explains every finding in **OWASP Top 10** terms in a single report you can hand to someone.
 
-Python standard library only: nothing to `pip install`. Runs on Linux, macOS and Windows.
+Python standard library only: nothing to `pip install`. Runs on Linux, macOS and Windows. See [how to run Vulnscan](docs/HOW_TO_RUN.md) for platform-specific setup and ignored/generated files, and the [project overview](docs/PROJECT_OVERVIEW.md) for a plain-language explanation of its purpose and use cases.
 
-```
+```text
           ┌── this machine (apt / apk / rpm, pip, npm)
  audit ───┼── Docker images  (--docker nginx:1.18)
           └── project files  (--project .  : requirements.txt, package-lock.json, Pipfile.lock)
@@ -16,33 +16,54 @@ Python standard library only: nothing to `pip install`. Runs on Linux, macOS and
         MITRE ──── CWE hierarchy        ├─ FIRST EPSS ── likelihood of exploitation
         OWASP ──── CWE → Top 10 map     └─ fix version + the exact upgrade command
                                         ▼
-                         report.html / report.md / results.json / findings.tsv
+                         report.html / report.md (default; JSON/TSV with --include-data)
 
  scan ──► open ports, banners, TLS, headers, cookies, CORS, exposed files, error pages ──► same report
 ```
 
-## Run it
+## Install and run by platform
 
-You need Python 3.9 or newer.
+### What you need
 
-```bash
-# Linux / macOS / WSL                         # Windows (PowerShell)
-python3 -m vulnscan doctor                    py -m vulnscan doctor
-python3 -m vulnscan audit                     py -m vulnscan audit
+- **All platforms:** Python 3.9 or newer. No third-party Python runtime packages are required when running from this source checkout; Vulnscan uses the Python standard library. Run commands from the repository root (the folder containing `vulnscan/`). Git is only needed to clone or update the repository.
+- **Windows:** Install Python 3.9+ and make the Python launcher (`py`) or `python` available in PowerShell. Native Windows OS-package inventory is not supported. WSL is optional; use it if you want the Linux shell scripts or Linux package auditing.
+- **macOS:** Install Python 3.9+ and use Terminal. Native macOS OS-package inventory is not supported.
+- **Linux:** Install Python 3.9+. Native OS-package inventory is supported for Debian/Ubuntu (`dpkg-query`), Alpine (`apk`), AlmaLinux/Rocky Linux (`rpm`). Other distributions can still run Vulnscan, but their native OS packages may not be inventoried or have OSV advisory coverage.
+- **Optional collectors:** `pip` enables inventory of packages in the running Python interpreter; `npm` enables inventory of globally installed npm packages. Docker Engine/Desktop, its CLI, and permission to run containers are needed only for `--docker`. These tools are not required to start Vulnscan; when an enabled inventory check cannot run, review the report's skipped-check notes.
+- **Fresh advisory data:** Internet access to the data sources listed below is needed for current online lookups. `--offline` uses the local cache only; a first offline run may not have cached data.
+
+### Run from source
+
+Open PowerShell on Windows, or a terminal on Linux/macOS, change to the Vulnscan repository root, then use the matching commands:
+
+```powershell
+# Windows PowerShell
+py -m vulnscan doctor
+py -m vulnscan audit
 ```
 
-1. **`doctor` first.** It checks required and optional data sources, local inventory tools, and whether OSV supports this OS release. It reports optional-source failures as warnings and required-source failures separately.
-2. **`audit`** inventories supported software, matches it against vulnerability data, and writes `reports/<timestamp>/report.html`. The first run downloads advisory data; later runs use the cache. Results include discovered inventory, unchecked versions, unavailable sources, and checks not run.
-3. Open `report.html` and read its **Coverage and skipped checks** section before treating a zero-finding result as clean.
-
 ```bash
-python3 -m vulnscan audit --docker nginx:1.18 --docker httpd:2.4.49   # audit container images
-python3 -m vulnscan audit --project ./my-app                          # audit dependency files
-python3 -m vulnscan audit --no-host --project . --fail-on high        # CI: fail the build on High+
-python3 -m vulnscan scan 192.168.56.101 -p top                        # exposure scan of a host (e.g. a VM)
-python3 -m vulnscan update                                            # refresh OWASP, CISA KEV, CWE data now
-python3 -m vulnscan audit --offline                                   # cached data only
+# Linux or macOS
+python3 -m vulnscan doctor
+python3 -m vulnscan audit
 ```
+
+If `py` is unavailable on Windows but `python` is on `PATH`, replace `py` with `python`. On Linux/macOS, use the Python 3.9+ interpreter as `python3`. `doctor` checks data-source connectivity, optional inventory tools, and OSV coverage for the detected OS release. `audit` writes `reports/<timestamp>/report.html`; review its **Coverage and skipped checks** section before treating zero findings as clean.
+
+### Common tasks
+
+Use the platform's Python command above (`py -m vulnscan` on Windows, `python3 -m vulnscan` on Linux/macOS):
+
+```text
+audit --docker nginx:1.18 --docker httpd:2.4.49   # audit container images
+audit --project ./my-app                           # supported dependency manifests
+audit --no-host --project . --fail-on high         # CI: fail on High+
+scan 192.168.56.101 -p top                         # authorized LAN/VM exposure check
+update                                             # refresh advisory enrichment data
+audit --offline                                   # use cached data only
+```
+
+For example, on Linux/macOS run `python3 -m vulnscan audit --project ./my-app`; on Windows run `py -m vulnscan audit --project .\my-app`. The `--project` option reads `requirements*.txt`, `package-lock.json`, and `Pipfile.lock` manifests; it does not install dependencies. A project may be audited from any of the supported host operating systems.
 
 **Exit codes:** `0` done, `1` bad input, `2` a `--fail-on` threshold was hit, `3` the vulnerability data was **incomplete** (a source was unreachable, or OSV has no data for the OS release). An incomplete result is never presented as clean.
 
@@ -55,6 +76,17 @@ Derivatives such as Kali or Mint are not in OSV under their own name. Tell the t
 ### Docker on Windows
 
 `--docker IMAGE` runs the image briefly (`docker run --rm`) to read its package database, so you can audit images without installing anything inside them. A ready-made lab of intentionally old and vulnerable images is in `lab/docker-compose.yml` (bound to 127.0.0.1 only); `scripts/lab_docker.sh` runs it end to end in WSL or Git Bash, or use the commands in the compose file's header from PowerShell. Distroless images have no package tools and cannot be audited.
+
+## Apps, servers, and cloud
+
+Vulnscan can assess software and network exposure in these specific ways:
+
+- **Application dependencies:** `audit --project PATH` reads supported dependency manifests (`requirements*.txt`, `package-lock.json`, and `Pipfile.lock`) without installing the app. It checks package versions against vulnerability advisories; it is not a source-code, binary, mobile-app, or authenticated application security scanner.
+- **Running services:** `scan` accepts authorized IPs, hostnames, CIDR ranges, or a target file. It tests selected TCP ports and performs limited unauthenticated HTTP(S), TLS, and service-banner checks from the machine where Vulnscan runs. This is useful for a server, VM, or app endpoint reachable from that vantage point; results do not prove reachability from other networks.
+- **Cloud-hosted servers:** Run `audit` on the server itself (or inside its supported Linux guest) to inventory its local packages, and run `scan` from an authorized network location to test reachability. Vulnscan does not SSH into servers or use cloud-provider APIs.
+- **Cloud infrastructure and SaaS:** Vulnscan does not inspect cloud accounts, IAM, cloud configuration, managed-service settings, SaaS tenant settings, or authenticated SaaS workflows. For a SaaS hostname it can only perform the same limited unauthenticated network/web checks, with the owner's explicit authorization; it cannot assess the provider's internals.
+
+Only scan systems you own or have written permission to test. Publicly routable targets require `--allow-public`; this flag does not itself establish authorization.
 
 ## How network exposure is reported
 
@@ -76,7 +108,7 @@ Severity comes from the **CVSS v3 base score** (computed from the vector; verifi
 ## Data sources
 
 | Source | Used for | If unreachable |
-|---|---|---|
+| --- | --- | --- |
 | [OSV.dev](https://osv.dev) | matching installed versions to vulnerabilities (Debian, Ubuntu, Alpine, AlmaLinux, Rocky, PyPI, npm) | audit is flagged **incomplete** (exit 3) |
 | OWASP Top 10 source (GitHub) | CWE → category mapping | cached copy, then bundled snapshot |
 | CISA KEV | exploited-in-the-wild flag | flag unavailable, stated in report |
@@ -95,6 +127,7 @@ Everything is cached in `~/.cache/vulnscan` (Windows: `%LOCALAPPDATA%\vulnscan`;
 `python -m pytest` covers version comparison, CVSS maths, OWASP and CWE parsing, inventory parsers, the audit pipeline with fixtures for OSV / KEV / EPSS / CVE.org, report escaping, exposure classification, unavailable-data behavior, and CLI output. Windows, Linux, and macOS inventory branches have regression tests; those tests simulate platform identity and do not replace running the suite on each OS. The GitHub Actions workflow runs Linux on Python 3.9, 3.12, and 3.13; Windows is informational (`continue-on-error`), and there is no macOS CI job.
 
 Known gaps, stated plainly:
+
 - Confirm live OSV connectivity and release coverage on your network with `vulnscan doctor`.
 - Native Windows and macOS operating-system package inventories are not supported; only available Python/npm packages, project files, and Docker images can be audited there. The Windows CI job is informational.
 - Docker image collection has not been verified against a live Docker engine.

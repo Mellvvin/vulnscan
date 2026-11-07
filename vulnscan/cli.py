@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -44,6 +45,8 @@ def _common(p: argparse.ArgumentParser) -> None:
                    help="drop findings below this severity")
     p.add_argument("--fail-on", choices=SEVERITIES[1:],
                    help="exit with status 2 if any finding at or above this severity exists (CI use)")
+    p.add_argument("--include-data", action="store_true",
+                   help="also save results.json and findings.tsv (default: report files only)")
     p.add_argument("--no-report", action="store_true", help="write results.json/findings.tsv only")
     p.add_argument("-q", "--quiet", action="store_true", help="suppress progress output")
 
@@ -138,11 +141,28 @@ def _print_summary(findings: List[Finding], edition: str, out_dir: str, duration
 def _finish(args, out_dir: str, started: datetime, t0: float, hosts: List[HostResult],
             findings: List[Finding], meta: dict, extra: Optional[dict] = None) -> int:
     ensure_dir(out_dir)
-    write_json(os.path.join(out_dir, "results.json"), meta, hosts, findings, args.owasp_edition, extra)
-    write_tsv(os.path.join(out_dir, "findings.tsv"), findings, args.owasp_edition)
+    if args.no_report or args.include_data:
+        write_json(os.path.join(out_dir, "results.json"), meta, hosts, findings, args.owasp_edition, extra)
+        write_tsv(os.path.join(out_dir, "findings.tsv"), findings, args.owasp_edition)
+
     if not args.no_report:
         from .report import load_results, write_reports
-        write_reports(out_dir, [load_results(out_dir)])
+        if args.include_data:
+            report_source = out_dir
+            write_reports(out_dir, [load_results(report_source)])
+        else:
+            # Keep the normal output folder focused on the reports. JSON is an
+            # intermediate for rendering and is discarded after the report is built.
+            for name in ("results.json", "findings.tsv"):
+                try:
+                    os.remove(os.path.join(out_dir, name))
+                except FileNotFoundError:
+                    pass
+            with tempfile.TemporaryDirectory(prefix="vulnscan-") as work_dir:
+                result_path = os.path.join(work_dir, "results.json")
+                write_json(result_path, meta, hosts, findings, args.owasp_edition, extra)
+                write_reports(out_dir, [load_results(result_path)])
+
     _print_summary(findings, args.owasp_edition, out_dir, time.monotonic() - t0, args.quiet)
     if not args.no_report:
         print(f"Open: {os.path.join(out_dir, 'report.html')}")
