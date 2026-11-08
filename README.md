@@ -118,6 +118,12 @@ Severity comes from the **CVSS v3 base score** (computed from the vector; verifi
 
 Everything is cached in `~/.cache/vulnscan` (Windows: `%LOCALAPPDATA%\vulnscan`; override with `VULNSCAN_CACHE_DIR`). Only package names and versions are sent to OSV; nothing else leaves the machine.
 
+## Client engagements
+
+`vulnscan engage` keeps a per-client folder with scope, signed authorization, an audit checklist, email
+(SPF/DKIM/DMARC) checks, your own notes and fix prices, one combined report and a local web UI
+(`vulnscan engage ui`). See [docs/ENGAGEMENTS.md](docs/ENGAGEMENTS.md).
+
 ## Bash automation
 
 `scripts/assess.sh audit|scan ...` runs a full cycle: assess, write the digest, **diff against the previous run** (new / resolved findings), and archive the results with a SHA-256 manifest. `scripts/report.sh` is a dependency-free digest and `--fail-on` gate over `findings.tsv`. Needs Linux, macOS or WSL.
