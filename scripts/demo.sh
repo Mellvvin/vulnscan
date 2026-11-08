@@ -16,7 +16,9 @@ TLS_PORT="${TLS_PORT:-8443}"
 TMP="$(mktemp -d)"
 PIDS=()
 cleanup() {
-  for pid in "${PIDS[@]:-}"; do [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true; done
+  for pid in "${PIDS[@]:-}"; do
+    if [[ -n "$pid" ]]; then kill "$pid" 2>/dev/null || true; fi
+  done
   rm -rf "$TMP"
 }
 trap cleanup EXIT

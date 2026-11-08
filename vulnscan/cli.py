@@ -21,7 +21,7 @@ from .scanner import ScanConfig, scan_host
 from .scope import ScopeError, check_authorization, expand_targets
 
 SEVERITIES = [s.name.lower() for s in sorted(Severity)]
-COMMANDS = ("scan", "audit", "update", "report", "doctor")
+COMMANDS = ("scan", "audit", "update", "report", "doctor", "engage")
 
 COLORS = {"CRITICAL": "\033[1;97;41m", "HIGH": "\033[1;31m", "MEDIUM": "\033[33m",
           "LOW": "\033[36m", "INFO": "\033[2m"}
@@ -66,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
                     "network (scan), and maps them to the OWASP Top 10. "
                     "For systems you own or are explicitly authorized to test.")
     p.add_argument("--version", action="version", version=f"vulnscan {__version__}")
-    sub = p.add_subparsers(dest="command", required=True, metavar="{audit,scan,update,report,doctor}")
+    sub = p.add_subparsers(dest="command", required=True, metavar="{audit,scan,update,report,doctor,engage}")
 
     a = sub.add_parser("audit", help="find known vulnerabilities in installed software (this machine, "
                                      "Docker images, project dependency files)")
@@ -112,6 +112,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     d = sub.add_parser("doctor", help="check connectivity to every data source and tool availability")
     d.set_defaults(func=cmd_doctor)
+
+    from . import engage_cli
+    engage_cli.add_parser(sub)
     return p
 
 
@@ -517,10 +520,17 @@ def cmd_doctor(args) -> int:
 
 # ------------------------------------------------------------------ entry point
 
+def cmd_engage(args) -> int:
+    from . import engage_cli
+    return engage_cli.run(args)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     # Backwards compatible: `vulnscan 127.0.0.1 -p 80` means `vulnscan scan 127.0.0.1 -p 80`.
     if argv and argv[0] not in COMMANDS and argv[0] not in ("-h", "--help", "--version"):
         argv.insert(0, "scan")
     args = build_parser().parse_args(argv)
+    if args.command == "engage":
+        return cmd_engage(args)
     return args.func(args)
