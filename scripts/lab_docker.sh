@@ -13,7 +13,7 @@ KEEP=0
 command -v docker >/dev/null || { echo "error: docker not found" >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "error: the Docker engine is not running" >&2; exit 1; }
 
-# shellcheck disable=SC2329  # invoked through the EXIT trap
+# shellcheck disable=SC2317,SC2329  # invoked through the EXIT trap
 cleanup() { [[ $KEEP -eq 1 ]] || "${COMPOSE[@]}" down >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
