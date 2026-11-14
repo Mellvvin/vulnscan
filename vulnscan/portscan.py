@@ -208,6 +208,10 @@ RISKY_SERVICES: Dict[int, Tuple[str, str, Severity, str, str, str, str]] = {
            "Restrict to management networks and require HTTPS."),
 }
 
+EXPECTED_SERVICE = {6379: "Redis", 11211: "Memcached", 3306: "MySQL/MariaDB", 5432: "PostgreSQL",
+                    27017: "MongoDB", 9200: "Elasticsearch", 3389: "Remote Desktop (RDP)",
+                    445: "SMB (Windows file sharing)"}
+
 for _port, _name in [(3306, "MySQL/MariaDB"), (5432, "PostgreSQL"), (1433, "Microsoft SQL Server"),
                      (1521, "Oracle DB"), (6379, "Redis"), (27017, "MongoDB"),
                      (9200, "Elasticsearch"), (11211, "Memcached")]:
@@ -222,10 +226,24 @@ for _port, _name in [(3306, "MySQL/MariaDB"), (5432, "PostgreSQL"), (1433, "Micr
     )
 
 
-def service_findings(host: str, info: PortInfo, address: Optional[str] = None) -> List[Finding]:
+def service_findings(host: str, info: PortInfo, address: Optional[str] = None,
+                     ident=None, probed: bool = False) -> List[Finding]:
+    """``ident`` is what the protocol probe confirmed; ``probed`` says a probe was attempted."""
     rule: Optional[tuple] = RISKY_SERVICES.get(info.port)
     if not rule:
         return []
+    if probed and ident is None and info.port in EXPECTED_SERVICE and rule[0] == "PORT-DATASTORE":
+        expected = EXPECTED_SERVICE[info.port]
+        return [Finding(
+            host=host, port=info.port, check_id="PORT-UNVERIFIED",
+            title=f"Port {info.port} is open but did not answer like {expected}", severity=Severity.LOW,
+            category="misconfig", cwe="CWE-284",
+            description=(f"Something accepts connections on port {info.port}, which is normally {expected}, "
+                         "but it did not respond to the protocol handshake. It may be a different service, a "
+                         "firewall or proxy, or {0} configured to ignore unknown clients.".format(expected)),
+            remediation="Find out what owns this port (on Windows: Get-NetTCPConnection -LocalPort "
+                        f"{info.port} | Select OwningProcess) and close it if it is not needed.",
+            evidence=f"TCP connect to port {info.port} succeeded; protocol check for {expected} got no valid reply")]
     check_id, title, severity, category, cwe, desc, fix = rule
     exposure = classify_exposure(address) if address else {
         "scope": "unknown", "address": "", "basis": "target address was not supplied"}
@@ -234,10 +252,19 @@ def service_findings(host: str, info: PortInfo, address: Optional[str] = None) -
                   "unknown": "unclassified address"}[exposure["scope"]]
     if check_id == "PORT-DATASTORE":
         title = title.replace("at target", f"at {scope_name}")
-        desc += " The service label is inferred from the conventional TCP port; no protocol handshake confirmed it."
+        if ident is not None:
+            title = f"{ident.name} service confirmed at {scope_name}"
+        else:
+            desc += " The service label is inferred from the conventional TCP port; no protocol handshake confirmed it."
     observed = (f"TCP connect from this scanner to {address}:{info.port} succeeded; "
                 f"{exposure['basis']}." if address else "TCP connect succeeded; target address was not recorded.")
-    if check_id == "PORT-DATASTORE":
+    if ident is not None:
+        desc += f" Confirmed by protocol check: {ident.name} ({ident.detail})."
+        observed += f" Protocol check confirmed {ident.name}: {ident.detail}."
+        if ident.open_access:
+            check_id, severity = "PORT-DATASTORE-OPEN", Severity.CRITICAL
+            title = f"{ident.name} answers without a login at {scope_name}"
+    elif check_id == "PORT-DATASTORE":
         observed += f" {info.service} is inferred from the port number; protocol not verified."
     return [Finding(
         host=host, port=info.port, check_id=check_id, title=title, severity=severity,
