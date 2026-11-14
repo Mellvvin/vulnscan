@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urlsplit
 
-from . import checklist
+from . import checklist, explain
 from .http import Http
 from .models import Finding
 from .output import write_json
@@ -389,6 +389,7 @@ class Engagement:
                 item["fix"] = notes.get("fix", "")
                 item["price"] = notes.get("price")
                 item["status"] = notes.get("status", "open")
+                item["suggest_note"], item["suggest_fix"] = explain.suggest(f)
                 out.append(item)
         return out
 

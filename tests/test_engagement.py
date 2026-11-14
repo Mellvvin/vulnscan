@@ -172,3 +172,34 @@ def test_webui_security_and_flow(tmp_path):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_suggested_text_prefills_and_appears_in_report(lab_port, tmp_path):
+    from vulnscan import explain
+    assert "file sharing" in explain.suggest({"check_id": "PORT-SMB"})[0].lower()
+    assert explain.suggest({"check_id": "WEB-EXPOSED-ENV"})[1]  # prefix match
+    assert explain.suggest({"check_id": "X-NEW", "description": "d", "remediation": "r"}) == ("d", "r")
+    eng = make(tmp_path)
+    eng.run_scan(ports=str(lab_port), timeout=1.0, threads=20)
+    assert all(f["suggest_note"] and f["suggest_fix"] for f in eng.findings())
+    assert "What I can do about it" in render_html(eng, GEN)
+
+
+def test_passing_items_are_prefilled_and_report_link_works(lab_port, tmp_path):
+    rows = {r["id"]: r for r in checklist.evaluate({}, [], ["scan"])}
+    assert rows["web-tls"]["effective"] == "pass"
+    assert "no problems" in rows["web-tls"]["suggest_note"].lower() and rows["web-tls"]["suggest_fix"]
+    rows = {r["id"]: r for r in checklist.evaluate({"acct-mfa": {"status": "fail"}}, [], [])}
+    assert rows["acct-mfa"]["suggest_note"] and rows["acct-mfa"]["suggest_fix"]
+    assert rows["pay-mpesa"]["suggest_note"] == ""  # still to do: nothing suggested
+    make(tmp_path)
+    srv = make_server(tmp_path, 0, "tok")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}/report/mama-njeri-fashions",
+                                     headers={"X-Token": "tok"})
+        page = urllib.request.urlopen(req).read().decode()
+        assert "Mama Njeri Fashions" in page
+    finally:
+        srv.shutdown()
+        srv.server_close()

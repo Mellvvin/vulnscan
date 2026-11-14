@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from . import explain
+
 STATUSES = ("todo", "pass", "fail", "na")
 SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO")
 
@@ -155,9 +157,30 @@ def evaluate(state: Dict[str, dict], finding_ids: Iterable[str], ran: Iterable[s
             effective, hint = "todo", f"run the {item.source} step"
         else:
             effective = "todo"
+        sug_note, sug_fix = _suggest(item, effective, manual, hits)
         rows.append({"id": item.id, "area": item.area, "title": item.title, "look_for": item.look_for,
                      "severity": item.severity, "coverage": item.coverage, "ask": item.ask,
                      "manual": manual, "auto": auto, "effective": effective, "hint": hint,
                      "hits": hits, "note": saved.get("note", ""), "fix": saved.get("fix", ""),
+                     "suggest_note": sug_note, "suggest_fix": sug_fix,
                      "price": saved.get("price")})
     return rows
+
+
+def _suggest(item: Item, effective: str, manual: str, hits: List[str]) -> Tuple[str, str]:
+    """Starting text for the note and fix boxes, depending on the result."""
+    if effective == "pass":
+        how = "by hand" if manual == "pass" else "by the scan"
+        return (f"Checked {how} and no problems were found. What was checked: {item.look_for}",
+                "Nothing to fix. Re-check after any change to the website, router or accounts.")
+    if effective == "na":
+        return "This does not apply to this business.", ""
+    if effective == "fail":
+        if hits:
+            note, fix = explain.suggest({"check_id": hits[0]})
+            return note, fix
+        fix = "Fix this and re-check."
+        if item.ask:
+            fix += " How to check: " + item.ask
+        return f"Problem found. What to look for: {item.look_for}", fix
+    return "", ""

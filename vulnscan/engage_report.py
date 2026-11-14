@@ -96,10 +96,12 @@ def _finding_card(eng: Engagement, f: dict) -> str:
     rows.append(f"<dt>OWASP</dt><dd>{base.esc(f['owasp'])} {base.esc(f['owasp_name'])}</dd>")
     if f.get("evidence"):
         rows.append(f"<dt>Evidence</dt><dd><code>{base.esc(f['evidence'])}</code></dd>")
-    mine = f'<div class="mine"><b>What it means</b>{base.esc(f["note"])}</div>' if f["note"] else ""
-    if f["fix"] or f["price"]:
+    note = f["note"] or f.get("suggest_note", "")
+    fix = f["fix"] or f.get("suggest_fix", "")
+    mine = f'<div class="mine"><b>What it means</b>{base.esc(note)}</div>' if note else ""
+    if fix or f["price"]:
         price = f' <span class="offer">{base.esc(money(eng, f["price"]))}</span>' if f["price"] else ""
-        mine += f'<div class="mine"><b>What I can do about it</b>{base.esc(f["fix"])}{price}</div>'
+        mine += f'<div class="mine"><b>What I can do about it</b>{base.esc(fix)}{price}</div>'
     return (f'<details class="f s-{f["severity"]}"><summary>{base._badge(f["severity"])}'
             f'<span><span class="main">{base.esc(f["title"])}</span>'
             f'<span class="where" style="display:block">{base.esc(where)}</span>'
@@ -109,10 +111,11 @@ def _finding_card(eng: Engagement, f: dict) -> str:
 
 
 def _manual_card(eng: Engagement, r: dict) -> str:
-    mine = f'<div class="mine"><b>What it means</b>{base.esc(r["note"])}</div>' if r["note"] else ""
-    if r["fix"] or r["price"]:
+    rnote, rfix = r["note"] or r.get("suggest_note", ""), r["fix"] or r.get("suggest_fix", "")
+    mine = f'<div class="mine"><b>What it means</b>{base.esc(rnote)}</div>' if rnote else ""
+    if rfix or r["price"]:
         price = f' <span class="offer">{base.esc(money(eng, r["price"]))}</span>' if r["price"] else ""
-        mine += f'<div class="mine"><b>What I can do about it</b>{base.esc(r["fix"])}{price}</div>'
+        mine += f'<div class="mine"><b>What I can do about it</b>{base.esc(rfix)}{price}</div>'
     return (f'<details class="f s-{r["severity"]}"><summary>{base._badge(r["severity"])}'
             f'<span><span class="main">{base.esc(r["area"])}: {base.esc(r["title"])}</span>'
             f'<span class="where" style="display:block">Found by manual check</span></span>'
@@ -149,7 +152,7 @@ def render_html(eng: Engagement, generated: Optional[datetime] = None) -> str:
         how = {"auto": "scanner", "partial": "scanner + manual", "manual": "manual"}[r["coverage"]]
         res = RESULT_WORD[r["effective"]] + (f" ({r['hint']})" if r["hint"] else "")
         crow.append(f'<tr><td>{base.esc(r["area"])}</td><td>{base.esc(r["title"])}</td><td>{base.esc(how)}</td>'
-                    f'<td class="res-{r["effective"]}">{base.esc(res)}</td><td>{base.esc(r["note"])}</td></tr>')
+                    f'<td class="res-{r["effective"]}">{base.esc(res)}</td><td>{base.esc(r["note"] or r.get("suggest_note", ""))}</td></tr>')
     check_html = ('<section><h2>Checklist</h2><div class="card tw"><table><tr><th>Area</th><th>Check</th>'
                   '<th>Done by</th><th>Result</th><th>Notes</th></tr>' + "".join(crow) + "</table></div></section>")
     dismissed = ""
@@ -212,21 +215,24 @@ def render_markdown(eng: Engagement, generated: Optional[datetime] = None) -> st
     for f in c["findings"]:
         where = f"{f['host']}:{f['port']}" if f.get("port") else f["host"]
         out += [f"### {base.SEV_WORD[f['severity']]}: {f['title']}", "", f"Where: {where}", "", f["description"], ""]
-        if f["note"]:
-            out += [f"What it means: {f['note']}", ""]
-        if f["fix"] or f["price"]:
-            out += [f"What I can do: {f['fix']} {money(eng, f['price'])}".rstrip(), ""]
+        note = f["note"] or f.get("suggest_note", "")
+        fix = f["fix"] or f.get("suggest_fix", "")
+        if note:
+            out += [f"What it means: {note}", ""]
+        if fix or f["price"]:
+            out += [f"What I can do: {fix} {money(eng, f['price'])}".rstrip(), ""]
         out += [f"How to fix: {f['remediation']}", ""]
     for r in c["manual_fail"]:
         out += [f"### {base.SEV_WORD[r['severity']]}: {r['area']}: {r['title']} (manual check)", "", r["look_for"], ""]
-        if r["note"]:
-            out += [f"What it means: {r['note']}", ""]
-        if r["fix"] or r["price"]:
-            out += [f"What I can do: {r['fix']} {money(eng, r['price'])}".rstrip(), ""]
+        rnote, rfix = r["note"] or r.get("suggest_note", ""), r["fix"] or r.get("suggest_fix", "")
+        if rnote:
+            out += [f"What it means: {rnote}", ""]
+        if rfix or r["price"]:
+            out += [f"What I can do: {rfix} {money(eng, r['price'])}".rstrip(), ""]
     out += ["## Checklist", "", "| Area | Check | Result | Notes |", "|---|---|---|---|"]
     for r in c["rows"]:
         res = RESULT_WORD[r["effective"]] + (f" ({r['hint']})" if r["hint"] else "")
-        out.append(f"| {base._md(r['area'])} | {base._md(r['title'])} | {base._md(res)} | {base._md(r['note'])} |")
+        out.append(f"| {base._md(r['area'])} | {base._md(r['title'])} | {base._md(res)} | {base._md(r['note'] or r.get('suggest_note', ''))} |")
     out += ["", "## Scope and method", ""]
     out += [f"- {r['kind']} run {r['started'][:19]} UTC: {', '.join(r['targets'])} ({r['findings']} findings)"
             for r in eng.data["runs"]] or ["- No automated steps run yet."]
