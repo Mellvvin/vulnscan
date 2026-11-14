@@ -101,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, list_engagements(self.root))
             if len(parts) == 3 and parts[:2] == ["api", "e"]:
                 return self._json(200, state_of(self._eng(parts[2])))
-            if len(parts) == 3 and parts[0] == "report":
+            if len(parts) == 2 and parts[0] == "report":
                 eng = self._eng(parts[1])
                 files = write_report(eng)
                 html = next(p for p in files if str(p).endswith(".html"))
