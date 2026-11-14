@@ -41,6 +41,14 @@ TEXT: Dict[str, Tuple[str, str]] = {
                        "default, so anyone who can reach it may be able to read or delete the data.",
                        "Bind it to localhost only, turn on authentication, and block its port in the firewall "
                        "so only the application can reach it. If it is not used, stop the service."),
+    "PORT-DATASTORE-OPEN": ("A database or cache is answering requests from anyone who can reach it, with no "
+                            "login. Anyone who can connect can read, change or delete its data.",
+                            "Stop the exposure today: bind it to localhost, require a password, and block the "
+                            "port in the firewall. Treat the data as possibly already seen and rotate any "
+                            "secrets stored in it."),
+    "PORT-UNVERIFIED": ("A port that is normally a database or remote service is open, but whatever listens "
+                        "there did not behave like that service.",
+                        "Find which program owns the port and close it if it is not needed."),
     "TLS-EXPIRED": ("The website certificate has expired. Browsers show a scary warning and visitors may "
                     "leave or be tricked into ignoring warnings.", "Renew the certificate now and turn on "
                     "automatic renewal (Let's Encrypt or the host's own)."),
@@ -123,6 +131,74 @@ TEXT: Dict[str, Tuple[str, str]] = {
     "DNS-DKIM-NOT-FOUND": ("No email-signing key was found on common names; this may be a false alarm if the "
                            "provider uses a custom one.", "Check in the mail provider's admin that DKIM "
                            "signing is on."),
+    "WIN-FIREWALL-OFF": ("The Windows firewall is switched off, so any program that listens for connections "
+                         "on this PC can be reached from the network.", "Turn the firewall on for every "
+                         "profile in Windows Security."),
+    "WIN-AV-OFF": ("Antivirus real-time protection is off, so malware is not blocked when it arrives.",
+                   "Turn on real-time protection, or confirm another antivirus is active."),
+    "WIN-AV-STALE": ("The antivirus knowledge is out of date and misses recent malware.",
+                     "Run Windows Update and update the security intelligence."),
+    "WIN-UPDATES-OLD": ("Windows has not been updated for a long time, which leaves publicly known security "
+                        "holes open.", "Install all updates, restart, and turn on automatic updates."),
+    "WIN-DISK-UNENCRYPTED": ("The disk is not encrypted, so a lost or stolen PC gives away every file.",
+                             "Turn on BitLocker or Device encryption and keep the recovery key off the PC."),
+    "WIN-SMB1": ("An obsolete file-sharing version (SMBv1) that was used by major ransomware outbreaks is "
+                 "turned on.", "Disable SMBv1."),
+    "WIN-RDP-ON": ("Remote Desktop is turned on, a common target for password guessing.",
+                   "Turn it off unless needed; otherwise require NLA and MFA and keep it off the internet."),
+    "WIN-UAC-OFF": ("User Account Control is off, so programs can get administrator rights silently.",
+                    "Turn UAC back on."),
+    "WIN-GUEST-ON": ("The shared Guest account is enabled.", "Disable the Guest account."),
+    "WIN-SECUREBOOT-OFF": ("Secure Boot is off, which allows tampered boot software.",
+                           "Enable Secure Boot in the UEFI settings if supported."),
+    "WIN-AUTOLOGIN": ("The PC signs in automatically, so anyone who turns it on gets into the account.",
+                      "Require a password to sign in."),
+    "CODE-SECRET-HISTORY": ("A password or key was committed to the project at some point. Even if it was "
+                            "deleted later, it is still in the history for anyone with the repository.",
+                            "Treat it as leaked: change the credential now. Cleaning the history is optional "
+                            "and does not make the old value safe."),
+    "CODE-SECRET": ("A password, key or token is written directly in the code. Anyone who can read the code "
+                    "can use it, and it often ends up on GitHub.",
+                    "Change the credential, then load it from an environment variable or secret manager "
+                    "instead of writing it in the code."),
+    "CODE-ENV-TRACKED": ("The file that holds the project's secrets is stored in git, so the secrets are in "
+                         "the history.", "Remove it from git, add it to .gitignore and change every secret "
+                         "that was in it."),
+    "CODE-ENV-UNIGNORED": ("The secrets file is not protected by .gitignore; one careless commit would "
+                           "publish it.", "Add .env to .gitignore."),
+    "CODE-DEP-VULN": ("A library the project depends on has published security advisories, which attackers "
+                      "can read too.", "Upgrade the library to the fixed version and re-test the site."),
+    "WEB-SURFACE": ("This lists what a visitor can reach on the site: pages, forms and data routes. Use it to "
+                    "spot anything that should not be public.", "Review the list and remove or protect "
+                    "anything unexpected."),
+    "WEB-FORM-INSECURE-ACTION": ("A password form sends the password without encryption, so anyone on the "
+                                 "same network can read it.", "Serve the form and its submission over HTTPS "
+                                 "only."),
+    "WEB-FORM-NO-CSRF": ("A form that changes data has no visible anti-forgery token, so another website might "
+                         "be able to trick a logged-in user into submitting it. Many modern apps protect this "
+                         "differently, so check before reporting.", "Add CSRF tokens or SameSite cookies."),
+    "WEB-MIXED-CONTENT": ("A secure page pulls in content over plain HTTP, which anyone on the network can "
+                          "tamper with.", "Load everything over HTTPS."),
+    "WEB-PRIVATE-PAGE-OPEN": ("A page that looks like an account or admin area opens for someone who is not "
+                              "logged in. It may be harmless (a public page with that name), so verify.",
+                              "Check on the server that only the right logged-in users can open it."),
+    "WEB-API-OPEN": ("A data route that looks private returns information to anyone, without logging in. "
+                     "If it holds customers or orders that is a data leak.",
+                     "Require login and permission checks on the server for this route."),
+    "WEB-AUTH-NOT-ENFORCED": ("This page is only meant for logged-in users, but opens for anyone who types the "
+                              "address. The site hides it in the browser instead of protecting it on the "
+                              "server.", "Check the login on the server for this page and the data it loads."),
+    "WEB-API-NOT-ENFORCED": ("A data route used by the logged-in part of the app also answers to anyone "
+                             "without logging in.", "Check login and permissions on the server for every "
+                             "data route."),
+    "EXT-NMAP-SERVICES": ("Nmap worked out which software and version is behind each open port, which is the "
+                          "starting point for checking that everything is supported and up to date.",
+                          "Compare each version with the vendor's latest release and update or close what is "
+                          "not needed."),
+    "NUCLEI-": ("A community vulnerability template matched on this site. These are leads backed by a real "
+                "known problem, but they should be confirmed before you tell the client.",
+                "Follow the reference in the finding, update or reconfigure the component, then run the "
+                "template again."),
     "COMP-": ("Software in use has known security holes that attackers already have tools for.",
               "Update to the fixed version shown in the finding."),
 }

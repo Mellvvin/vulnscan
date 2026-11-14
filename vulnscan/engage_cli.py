@@ -49,6 +49,32 @@ def add_parser(sub) -> None:
     d = es.add_parser("dns", help="check SPF, DMARC and DKIM from public DNS (no authorization needed)")
     d.add_argument("name")
 
+    w = es.add_parser("winaudit", help="read-only check of this Windows PC's security settings "
+                                       "(run it on the PC; use an Administrator PowerShell for a full check)")
+    w.add_argument("name")
+
+    cr = es.add_parser("crawl", help="crawl one site: find pages, forms and API routes and test them "
+                                     "(GET only; public sites need a recorded authorization)")
+    cr.add_argument("name")
+    cr.add_argument("url", help="e.g. http://127.0.0.1:3000")
+    cr.add_argument("--login", action="store_true",
+                    help="also crawl logged in: you are asked to paste a Cookie header value (hidden, never saved). "
+                         "Use a normal test account, not an admin.")
+    cr.add_argument("--max-pages", type=int, default=40)
+
+    ex = es.add_parser("nmap", help="identify service versions with Nmap (must be installed)")
+    ex.add_argument("name")
+    ex.add_argument("target", help="one host from the scope")
+    ex.add_argument("-p", "--ports", default="top")
+    nu = es.add_parser("nuclei", help="run Nuclei templates against a site (must be installed)")
+    nu.add_argument("name")
+    nu.add_argument("url")
+
+    cs = es.add_parser("codescan", help="scan a project folder for leaked secrets and vulnerable dependencies")
+    cs.add_argument("name")
+    cs.add_argument("folder", help="path to the project, e.g. C:\\Users\\you\\shopzone")
+    cs.add_argument("--no-history", action="store_true", help="skip the git history search")
+
     st = es.add_parser("status", help="show scope, authorization, findings and checklist")
     st.add_argument("name")
 
@@ -143,6 +169,24 @@ def _dispatch(args, root: Optional[Path]) -> int:
     elif cmd == "dns":
         run_info = eng.run_dns(log=_log)
         print(f"Email check done: {run_info['findings']} finding(s) {run_info['by_severity']}")
+    elif cmd == "winaudit":
+        run_info = eng.run_winaudit(log=_log)
+        print(f"Windows check done: {run_info['findings']} finding(s) {run_info['by_severity']}")
+    elif cmd == "crawl":
+        headers = None
+        if args.login:
+            import getpass
+            raw = getpass.getpass("Paste the Cookie header value of a logged-in test account (hidden): ").strip()
+            headers = {"Cookie": raw} if raw else None
+        run_info = eng.run_crawl(args.url, headers, args.max_pages, _log)
+        print(f"Crawl done: {run_info['findings']} finding(s) {run_info['by_severity']}")
+    elif cmd in ("nmap", "nuclei"):
+        run_info = eng.run_external(cmd, args.target if cmd == "nmap" else args.url,
+                                    getattr(args, "ports", "top"), log=_log)
+        print(f"{cmd} done: {run_info['findings']} finding(s) {run_info['by_severity']}")
+    elif cmd == "codescan":
+        run_info = eng.run_codescan(args.folder, not args.no_history, log=_log)
+        print(f"Code scan done: {run_info['findings']} finding(s) {run_info['by_severity']}")
     elif cmd == "status":
         _print_status(eng)
     elif cmd == "findings":

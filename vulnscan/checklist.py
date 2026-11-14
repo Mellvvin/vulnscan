@@ -7,7 +7,7 @@ Each item says how it is answered:
 * ``manual``  - only a person can check it (questions, screenshots, the client's accounts).
 
 ``checks`` lists check-id prefixes; a finding whose check_id starts with one of them belongs
-to the item.  ``source`` says which run produces them ("scan" or "dns").
+to the item.  ``source`` says which run produces them ("scan", "dns", "win", "code" or "crawl").
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class Item:
 ITEMS: List[Item] = [
     Item("web-tls", "Website", "HTTPS and certificate",
          "Expired or weak certificate, no redirect from HTTP to HTTPS, no HSTS.", "MEDIUM", "auto",
-         ("TLS-", "WEB-NO-HSTS", "WEB-WEAK-HSTS", "WEB-NO-HTTPS-REDIRECT"), "scan"),
+         ("TLS-", "WEB-NO-HSTS", "WEB-WEAK-HSTS", "WEB-NO-HTTPS-REDIRECT", "WEB-MIXED-CONTENT"), "scan"),
     Item("web-headers", "Website", "Security headers",
          "Missing CSP, clickjacking protection, nosniff or referrer policy.", "LOW", "auto",
          ("WEB-NO-CSP", "WEB-NO-CLICKJACK-PROTECTION", "WEB-NO-NOSNIFF", "WEB-NO-REFERRER-POLICY"), "scan"),
@@ -52,18 +52,24 @@ ITEMS: List[Item] = [
          "Open /wp-admin (with permission), note the WordPress version, list plugins; run WPScan if you use it."),
     Item("web-exposed", "Website", "Exposed files and paths",
          "Open .git, .env, backups, phpinfo, directory listing, admin panels reachable by anyone.",
-         "HIGH", "auto", ("WEB-EXPOSED-", "WEB-DIR-LISTING"), "scan"),
+         "HIGH", "auto", ("WEB-EXPOSED-", "WEB-DIR-LISTING", "NUCLEI-"), "scan"),
     Item("web-login", "Website", "Login and session protection",
          "No rate limiting or MFA on admin, default usernames, cookies without Secure/HttpOnly/SameSite, "
-         "login over HTTP.", "HIGH", "partial", ("WEB-COOKIE-", "WEB-LOGIN-OVER-HTTP"), "scan",
+         "login over HTTP.", "HIGH", "partial", ("WEB-COOKIE-", "WEB-LOGIN-OVER-HTTP", "WEB-FORM-INSECURE-ACTION"), "scan",
          "Try the admin login: is there a lockout after repeated failures? Is MFA offered? Is 'admin' a valid user?"),
     Item("web-inputs", "Website", "Forms and inputs",
          "Indicators of SQL injection or reflected XSS on contact, search and checkout forms.",
-         "HIGH", "partial", ("WEB-SQL-ERROR", "WEB-REFLECTED-INPUT"), "scan",
+         "HIGH", "partial", ("WEB-SQL-ERROR", "WEB-REFLECTED-INPUT", "WEB-FORM-NO-CSRF"), "scan",
          "The scanner only flags indicators. Verify any hit by hand and test other forms it cannot reach."),
+    Item("web-access", "Website", "Pages and data behind login",
+         "Admin, account or API pages that open without logging in; login enforced only in the browser.",
+         "HIGH", "partial", ("WEB-AUTH-NOT-ENFORCED", "WEB-API-", "WEB-PRIVATE-PAGE-OPEN"), "crawl",
+         "Log in as an ordinary customer and try admin addresses; change an order or user number in the "
+         "address and see whether you can open someone else's. The crawler only compares logged-in and "
+         "logged-out, it cannot test two different users."),
     Item("pay-mpesa", "Payments", "M-Pesa / Daraja integration",
          "API keys in front-end code or public repos, callbacks accepted without verification.",
-         "CRITICAL", "manual", (), None,
+         "CRITICAL", "partial", ("CODE-SECRET", "CODE-ENV"), "code",
          "Read the page source and JS bundles for keys; check the callback URL validates the sender and amount."),
     Item("pay-checkout", "Payments", "Checkout flow",
          "Prices or amounts editable client-side, no server-side validation.", "CRITICAL", "manual", (), None,
@@ -96,9 +102,15 @@ ITEMS: List[Item] = [
     Item("net-exposed", "Network", "Exposed services",
          "RDP, SSH, databases, SMB or CCTV panels reachable from the internet.", "CRITICAL", "auto",
          ("PORT-",), "scan"),
+    Item("code-deps", "Website", "Code dependencies",
+         "Libraries in the project with published security advisories.", "HIGH", "auto",
+         ("CODE-DEP-",), "code",
+         "Run the code scan on the project folder."),
     Item("dev-updates", "Devices", "Updates and antivirus",
-         "Unpatched Windows or Android POS devices, no endpoint protection.", "MEDIUM", "manual", (), None,
-         "Spot-check a few devices; for Linux hosts run `vulnscan audit` on them."),
+         "Unpatched Windows or Android POS devices, no endpoint protection, firewall or disk encryption off.",
+         "MEDIUM", "partial", ("WIN-",), "win",
+         "Run the Windows check on each Windows PC; spot-check phones and POS devices by hand; for Linux "
+         "hosts run `vulnscan audit` on them."),
     Item("data-backups", "Data", "Backups",
          "No backup, backups never tested, or stored on the same machine.", "HIGH", "manual", (), None,
          "Ask when the last backup was and whether a restore was ever tested."),
@@ -138,10 +150,10 @@ def evaluate(state: Dict[str, dict], finding_ids: Iterable[str], ran: Iterable[s
         hits = [c for c in ids if any(c.startswith(p) for p in item.checks)] if item.checks else []
         if item.source is None:
             auto = "manual"
-        elif item.source not in ran_set:
-            auto = "not-run"
         elif hits:
             auto = "findings"
+        elif item.source not in ran_set:
+            auto = "not-run"
         else:
             auto = "clean"
         hint = ""
@@ -154,7 +166,7 @@ def evaluate(state: Dict[str, dict], finding_ids: Iterable[str], ran: Iterable[s
         elif auto == "clean":
             effective, hint = "todo", "scanner found nothing, but this needs a manual look"
         elif auto == "not-run":
-            effective, hint = "todo", f"run the {item.source} step"
+            effective, hint = "todo", "run the " + {"scan": "scan", "dns": "email check", "win": "Windows check", "code": "code scan", "crawl": "site crawl"}.get(item.source, item.source)
         else:
             effective = "todo"
         sug_note, sug_fix = _suggest(item, effective, manual, hits)

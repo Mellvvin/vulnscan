@@ -136,6 +136,15 @@ class Handler(BaseHTTPRequestHandler):
                     eng.run_scan(str(body.get("ports") or "top"), 1.0, 200, bool(body.get("web", True)), None)
                 elif action == "dns":
                     eng.run_dns()
+                elif action == "winaudit":
+                    eng.run_winaudit()
+                elif action == "crawl":
+                    cookie = str(body.get("cookie") or "").strip()
+                    eng.run_crawl(str(body.get("url", "")), {"Cookie": cookie} if cookie else None)
+                elif action in ("nmap", "nuclei"):
+                    eng.run_external(action, str(body.get("target", "")))
+                elif action == "codescan":
+                    eng.run_codescan(str(body.get("folder", "")), bool(body.get("history", True)))
                 elif action == "finding":
                     eng.set_finding(str(body.get("key", "")), body.get("note"), body.get("fix"),
                                     body.get("price"), body.get("status"), "price" in body)
@@ -207,13 +216,13 @@ function field(label,id,val,type){return h("div",{},h("label",{for:id},label),h(
 function render(){const v=$("view");v.replaceChildren();
 if(!S){v.append(h("div",{class:"card"},h("h2",{},"Start"),h("p",{class:"mut"},"Pick an engagement above or create a new one.")));return}
 v.append(head());
-v.append(h("nav",{},["findings","checklist","scope"].map(t=>h("button",{class:t===tab?"on":"",onclick:()=>{tab=t;render()}},t[0].toUpperCase()+t.slice(1)))));
-v.append(tab==="findings"?findings():tab==="checklist"?checks():scope())}
+v.append(h("nav",{},["findings","checklist","tools","scope"].map(t=>h("button",{class:t===tab?"on":"",onclick:()=>{tab=t;render()}},t[0].toUpperCase()+t.slice(1)))));
+v.append(tab==="findings"?findings():tab==="checklist"?checks():tab==="tools"?tools():scope())}
 function head(){const a=S.authorization;return h("div",{class:"card"},h("h2",{},S.client),
 h("div",{class:"mut"},"Scope: "+S.scope.join(", ")),
 h("div",{class:a&&!S.authorization_problem?"":"err"},a?("Authorization: "+a.signer+", "+a.signed_on+(S.authorization_problem?" - "+S.authorization_problem:"")):"No signed authorization recorded: public targets cannot be scanned."),
 h("div",{class:"mut"},S.findings.length+" findings, fixes priced: "+S.currency+" "+S.offer_total.toFixed(2)),
-h("div",{class:"row",style:"margin-top:8px"},h("button",{onclick:()=>act("scan",{})},"Run scan"),h("button",{class:"sec",onclick:()=>act("dns",{})},"Check email records")))}
+h("div",{class:"row",style:"margin-top:8px"},h("button",{onclick:()=>act("scan",{})},"Run scan"),h("button",{class:"sec",onclick:()=>act("dns",{})},"Check email records"),h("button",{class:"sec",title:"Reads this Windows PC's settings; nothing is changed",onclick:()=>act("winaudit",{})},"Check this Windows PC")))}
 function noteBox(o,save){const sn=!o.note&&o.suggest_note,sf=!o.fix&&o.suggest_fix;const n=h("textarea",{rows:3,"aria-label":"What it means"},o.note||o.suggest_note||""),f=h("textarea",{rows:3,"aria-label":"What I can do"},o.fix||o.suggest_fix||""),p=h("input",{"aria-label":"Price",value:o.price??"",style:"width:110px"});
 return [h("label",{},"What it means (your words)"+(sn?" - suggested, edit freely":"")),n,h("label",{},"What I can do about it"+(sf?" - suggested, edit freely":"")),f,h("div",{class:"row",style:"margin-top:6px"},h("span",{class:"mut"},"Price"),p,...save(n,f,p))]}
 function findings(){const box=h("div",{});if(!S.findings.length)box.append(h("div",{class:"card mut"},"No findings yet. Run a scan or the email check."));
@@ -225,7 +234,16 @@ for(const r of S.checklist){if(r.area!==area){area=r.area;box.append(h("h2",{sty
 const st=h("select",{"aria-label":"Result"},S.statuses.map(x=>h("option",{value:x,selected:x===r.manual},x)));
 box.append(h("div",{class:"item"},h("div",{class:"row"},h("strong",{class:"grow"},r.title),h("span",{class:"tag "+r.effective},r.effective),h("span",{class:"tag"},r.coverage)),
 h("div",{class:"mut"},r.look_for),r.ask?h("div",{class:"mut"},"Ask/inspect: "+r.ask):null,r.hint?h("div",{class:"mut"},"Note: "+r.hint):null,
-...noteBox(r,(n,fx,p)=>[st,h("button",{onclick:()=>act("check",{id:r.id,status:st.value,note:n.value,fix:fx.value,price:p.value})},"Save")])))}return box}
+...noteBox(r,(n,fx,p)=>[st,h("button",{onclick:()=>act("check",{id:r.id,status:st.value,note:n.value,fix:fx.value,price:p.value})},"Save"),
+h("button",{class:"sec",title:"Mark as checked, no problem",onclick:()=>act("check",{id:r.id,status:"pass",note:n.value===r.suggest_note?"":n.value,fix:fx.value===r.suggest_fix?"":fx.value,price:p.value})},"Checked, it's fine"),
+h("button",{class:"sec",title:"Does not apply here",onclick:()=>act("check",{id:r.id,status:"na",note:n.value===r.suggest_note?"":n.value,fix:fx.value===r.suggest_fix?"":fx.value,price:p.value})},"Doesn't apply")])))}return box}
+function tools(){const u=field("Site address (must be in the scope)","c-u","http://127.0.0.1:3000"),c=field("Login cookie of a normal test account (optional, hidden, never saved)","c-c","","password"),f=field("Project folder on this computer","d-f","");
+return h("div",{},h("div",{class:"card"},h("h2",{},"Crawl a website"),h("p",{class:"mut"},"Finds pages, forms and API routes and tests them. Only reads pages; forms are never submitted. With a cookie it also looks for pages that are only protected in the browser."),u,c,
+h("p",{},h("button",{onclick:()=>act("crawl",{url:$("c-u").value,cookie:$("c-c").value})},"Start crawl"))),
+h("div",{class:"card"},h("h2",{},"Other tools (only if installed)"),h("p",{class:"mut"},"Nmap names the exact software and version behind each open port. Nuclei runs community vulnerability templates against a site. Both are active scanners and follow the same scope and authorization rules."),field("Host for Nmap, or site address for Nuclei","x-t","127.0.0.1"),
+h("p",{class:"row"},h("button",{class:"sec",onclick:()=>act("nmap",{target:$("x-t").value})},"Run Nmap"),h("button",{class:"sec",onclick:()=>act("nuclei",{target:$("x-t").value})},"Run Nuclei"))),
+h("div",{class:"card"},h("h2",{},"Scan project code"),h("p",{class:"mut"},"Looks for leaked passwords and keys (in files and git history) and for libraries with known vulnerabilities."),f,
+h("p",{},h("button",{onclick:()=>act("codescan",{folder:$("d-f").value})},"Scan code"))))}
 function scope(){const a=S.authorization||{};const s=field("Signed by","a-s",a.signer),d=field("Date signed","a-d",a.signed_on,"date"),r=field("Letter reference","a-r",a.reference),x=field("Testing window ends","a-x",a.expires,"date");
 return h("div",{class:"card"},h("h2",{},"Authorization letter"),h("p",{class:"mut"},"Record this only once the client has signed. Scans of public targets are blocked without it."),s,d,r,x,
 h("p",{},h("button",{onclick:()=>act("authorize",{signer:$("a-s").value,signed_on:$("a-d").value,reference:$("a-r").value,expires:$("a-x").value})},"Save authorization")),

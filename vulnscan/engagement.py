@@ -359,6 +359,113 @@ class Engagement:
                    {"coverage": {"dns": coverage}})
         return self._record_run("dns", run_id, started, domains, findings, time.monotonic() - t0)
 
+    def run_winaudit(self, facts: Optional[dict] = None, log: Callable[[str], None] = lambda m: None) -> dict:
+        """Read-only check of the Windows PC this program runs on."""
+        from . import winaudit
+        if facts is None:
+            if not winaudit.is_windows():
+                raise EngagementError("the Windows check only runs on a Windows PC; run vulnscan there")
+            log("reading Windows settings")
+            try:
+                facts = winaudit.collect()
+            except RuntimeError as exc:
+                raise EngagementError(str(exc)) from None
+        started = datetime.now(timezone.utc)
+        t0 = time.monotonic()
+        host = (facts.get("os") or {}).get("caption") or "this Windows PC"
+        findings, unchecked = winaudit.evaluate(facts, host)
+        run_id, path = self._new_run_dir("win", started)
+        meta = {"started": started.isoformat(timespec="seconds"),
+                "duration_seconds": round(time.monotonic() - t0, 2), "targets": [host], "mode": "win",
+                "engagement": self.slug}
+        coverage = {"windows": {"status": "completed" if not unchecked else "incomplete",
+                                "method": "read-only PowerShell queries on this PC",
+                                "skipped_checks": unchecked, "limitations": [
+                                    "Reads settings only; it does not scan for malware or list installed "
+                                    "software versions."]}}
+        write_json(str(path / "results.json"), meta, [], findings, self.data["owasp_edition"],
+                   {"coverage": coverage})
+        return self._record_run("win", run_id, started, [host], findings, time.monotonic() - t0)
+
+    def run_codescan(self, folder: str, history: bool = True, http: Optional[Http] = None, cache=None,
+                     log: Callable[[str], None] = lambda m: None) -> dict:
+        """Scan a project folder on this computer for secrets and vulnerable dependencies."""
+        from .codescan import run_codescan
+        path = Path(folder).expanduser()
+        if not path.is_dir():
+            raise EngagementError(f"'{folder}' is not a folder on this computer")
+        started = datetime.now(timezone.utc)
+        t0 = time.monotonic()
+        findings, coverage = run_codescan(path, http or Http(timeout=30, retries=2), cache, history, log)
+        run_id, rdir = self._new_run_dir("code", started)
+        meta = {"started": started.isoformat(timespec="seconds"),
+                "duration_seconds": round(time.monotonic() - t0, 2), "targets": [path.name], "mode": "code",
+                "engagement": self.slug}
+        write_json(str(rdir / "results.json"), meta, [], findings, self.data["owasp_edition"],
+                   {"coverage": {"code": coverage}})
+        return self._record_run("code", run_id, started, [path.name], findings, time.monotonic() - t0)
+
+    def run_crawl(self, url: str, headers: Optional[Dict[str, str]] = None, max_pages: int = 40,
+                  log: Callable[[str], None] = lambda m: None) -> dict:
+        """Crawl one site from the scope (public sites need a recorded authorization)."""
+        from .crawler import run_crawl
+        parts = urlsplit(url if "://" in url else "http://" + url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise EngagementError("give a full address such as http://127.0.0.1:3000 or https://shop.example.com")
+        host = parts.hostname
+        targets, _ = self.plan_scan([host])  # enforces scope and authorization for public targets
+        if not targets:
+            raise EngagementError(f"{host} did not resolve to an address")
+        tls = parts.scheme == "https"
+        port = parts.port or (443 if tls else 80)
+        started = datetime.now(timezone.utc)
+        t0 = time.monotonic()
+        findings, coverage = run_crawl(host, targets[0].address, port, tls, parts.path or "/", headers,
+                                       max_pages, log)
+        run_id, rdir = self._new_run_dir("crawl", started)
+        meta = {"started": started.isoformat(timespec="seconds"),
+                "duration_seconds": round(time.monotonic() - t0, 2), "targets": [f"{host}:{port}"],
+                "mode": "crawl", "engagement": self.slug}
+        write_json(str(rdir / "results.json"), meta, [], findings, self.data["owasp_edition"],
+                   {"coverage": {"crawl": coverage}})
+        return self._record_run("crawl", run_id, started, [f"{host}:{port}"], findings, time.monotonic() - t0)
+
+    def run_external(self, tool: str, target: str, ports: str = "top", runner=None,
+                     log: Callable[[str], None] = lambda m: None) -> dict:
+        """Run Nmap (target = host in scope) or Nuclei (target = site address) if installed."""
+        from . import external
+        if tool not in ("nmap", "nuclei"):
+            raise EngagementError("tool must be nmap or nuclei")
+        kw = {"runner": runner} if runner else {}
+        started = datetime.now(timezone.utc)
+        t0 = time.monotonic()
+        try:
+            if tool == "nmap":
+                targets, _ = self.plan_scan([target])
+                if len(targets) != 1:
+                    raise EngagementError("give one host from the scope, not a range")
+                log(f"running nmap against {targets[0].label}")
+                findings, cov = external.run_nmap(targets[0].label, targets[0].address, ports, **kw)
+                label = targets[0].label
+            else:
+                parts = urlsplit(target if "://" in target else "http://" + target)
+                if not parts.hostname:
+                    raise EngagementError("give a full address such as http://127.0.0.1:3000")
+                self.plan_scan([parts.hostname])
+                log(f"running nuclei against {target}")
+                port = parts.port or (443 if parts.scheme == "https" else 80)
+                findings, cov = external.run_nuclei(parts.hostname, port, target, **kw)
+                label = f"{parts.hostname}:{port}"
+        except RuntimeError as exc:
+            raise EngagementError(str(exc)) from None
+        run_id, rdir = self._new_run_dir(tool, started)
+        meta = {"started": started.isoformat(timespec="seconds"),
+                "duration_seconds": round(time.monotonic() - t0, 2), "targets": [label], "mode": tool,
+                "engagement": self.slug}
+        write_json(str(rdir / "results.json"), meta, [], findings, self.data["owasp_edition"],
+                   {"coverage": {tool: cov}})
+        return self._record_run(tool, run_id, started, [label], findings, time.monotonic() - t0)
+
     def load_docs(self) -> List[dict]:
         """Result documents of every run, newest first (so newer findings win when merged)."""
         docs = []

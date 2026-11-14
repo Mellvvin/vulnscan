@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
+from . import identify
 from .models import HostResult, PortInfo
 from .portscan import probe_port, scan_ports, service_findings
 from .scope import Target
@@ -41,7 +42,13 @@ def scan_host(target: Target, cfg: ScanConfig, quiet: bool = False) -> HostResul
     https_available = any(p.http and p.tls for p in result.ports)
 
     for info in result.ports:
-        result.extend(service_findings(target.label, info, target.address))
+        ident = identify.identify(target.address, info.port, max(cfg.timeout, 1.5))
+        if ident is not None:
+            info.service = ident.name
+            info.banner = info.banner or f"{ident.name}: {ident.detail}"
+            result.extend(version_findings(target.label, info.port, ident.name + " " + ident.detail))
+        result.extend(service_findings(target.label, info, target.address, ident,
+                                       probed=info.port in identify.PROBES))
         result.extend(version_findings(target.label, info.port, info.banner))
 
         if info.tls:

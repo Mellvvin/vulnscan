@@ -21,6 +21,23 @@ vulnscan engage report mama-njeri-fashions    # report.html + report.md
 vulnscan engage ui                            # same thing in the browser
 ```
 
+## More checks (all land in the same findings and report)
+
+| Command | What it does | Needs |
+|---|---|---|
+| `engage winaudit NAME` | Read-only check of this Windows PC: firewall, antivirus, updates, BitLocker, SMBv1, Remote Desktop, UAC, Guest, Secure Boot, auto-login. Run it in an **Administrator** PowerShell for a full check; anything it cannot read is listed as "not checked", never as a problem. | Windows |
+| `engage crawl NAME URL [--login]` | Finds pages, forms and API routes (GET only, never submits forms, never follows logout/delete links) and checks them. With `--login` you paste a test account's cookie (hidden, never saved): the crawl is repeated logged-out to find pages that are only protected in the browser. | site in scope |
+| `engage codescan NAME FOLDER` | Looks for leaked secrets (keys, M-Pesa/Daraja credentials, database passwords, `.env` committed to git, secrets in git history) and libraries with known vulnerabilities (npm lock files, pinned `requirements.txt`, `Pipfile.lock`) via OSV.dev. Secrets are shown only as the first characters. | internet for the library lookup |
+| `engage nmap NAME HOST` | Names the real software and version behind each open port. | Nmap installed |
+| `engage nuclei NAME URL` | Runs community vulnerability templates against a site. | Nuclei installed |
+
+`engage scan` now also confirms what is behind database, Remote Desktop and file-sharing ports by speaking
+the protocol (a harmless PING / handshake, no login attempts). A Redis or Memcached that answers without a
+password is reported as critical; a port that does not answer like the expected service is reported as low
+instead of guessing from the port number.
+
+The checklist tab has **Checked, it's fine** and **Doesn't apply** buttons for one-click answers.
+
 ## Authorization guard
 
 Scans of publicly routable addresses are refused unless the target is in the engagement scope and a
@@ -46,6 +63,12 @@ prices), checklist, resolved or dismissed, scope and method. Findings you mark `
 or with a non-local Host/Origin header, are refused.
 
 ## Limits
+
+- The crawler does not run JavaScript, so single-page apps expose fewer pages to it, and it compares one logged-in
+  user with anonymous only; it cannot test whether user A can open user B's data.
+- Burp Suite and OWASP ZAP are still the right tools for deeper manual web testing; vulnscan does not drive them.
+- The Windows check reads settings only. It does not scan for malware or list installed software versions.
+
 
 DKIM selectors cannot be listed, so only common ones are tried. Scans are TCP connect scans from the
 machine you run them on. Automated results are indicators; verify before telling a client something is
