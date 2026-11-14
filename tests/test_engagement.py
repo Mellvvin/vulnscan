@@ -172,3 +172,14 @@ def test_webui_security_and_flow(tmp_path):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_suggested_text_prefills_and_appears_in_report(lab_port, tmp_path):
+    from vulnscan import explain
+    assert "file sharing" in explain.suggest({"check_id": "PORT-SMB"})[0].lower()
+    assert explain.suggest({"check_id": "WEB-EXPOSED-ENV"})[1]  # prefix match
+    assert explain.suggest({"check_id": "X-NEW", "description": "d", "remediation": "r"}) == ("d", "r")
+    eng = make(tmp_path)
+    eng.run_scan(ports=str(lab_port), timeout=1.0, threads=20)
+    assert all(f["suggest_note"] and f["suggest_fix"] for f in eng.findings())
+    assert "What I can do about it" in render_html(eng, GEN)

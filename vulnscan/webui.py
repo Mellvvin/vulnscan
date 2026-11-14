@@ -214,8 +214,8 @@ h("div",{class:"mut"},"Scope: "+S.scope.join(", ")),
 h("div",{class:a&&!S.authorization_problem?"":"err"},a?("Authorization: "+a.signer+", "+a.signed_on+(S.authorization_problem?" - "+S.authorization_problem:"")):"No signed authorization recorded: public targets cannot be scanned."),
 h("div",{class:"mut"},S.findings.length+" findings, fixes priced: "+S.currency+" "+S.offer_total.toFixed(2)),
 h("div",{class:"row",style:"margin-top:8px"},h("button",{onclick:()=>act("scan",{})},"Run scan"),h("button",{class:"sec",onclick:()=>act("dns",{})},"Check email records")))}
-function noteBox(o,save){const n=h("textarea",{rows:2,"aria-label":"What it means"},o.note||""),f=h("textarea",{rows:2,"aria-label":"What I can do"},o.fix||""),p=h("input",{"aria-label":"Price",value:o.price??"",style:"width:110px"});
-return [h("label",{},"What it means (your words)"),n,h("label",{},"What I can do about it"),f,h("div",{class:"row",style:"margin-top:6px"},h("span",{class:"mut"},"Price"),p,...save(n,f,p))]}
+function noteBox(o,save){const sn=!o.note&&o.suggest_note,sf=!o.fix&&o.suggest_fix;const n=h("textarea",{rows:3,"aria-label":"What it means"},o.note||o.suggest_note||""),f=h("textarea",{rows:3,"aria-label":"What I can do"},o.fix||o.suggest_fix||""),p=h("input",{"aria-label":"Price",value:o.price??"",style:"width:110px"});
+return [h("label",{},"What it means (your words)"+(sn?" - suggested, edit freely":"")),n,h("label",{},"What I can do about it"+(sf?" - suggested, edit freely":"")),f,h("div",{class:"row",style:"margin-top:6px"},h("span",{class:"mut"},"Price"),p,...save(n,f,p))]}
 function findings(){const box=h("div",{});if(!S.findings.length)box.append(h("div",{class:"card mut"},"No findings yet. Run a scan or the email check."));
 for(const f of S.findings){const st=h("select",{"aria-label":"Status"},S.finding_statuses.map(x=>h("option",{value:x,selected:x===f.status},x)));
 box.append(h("div",{class:"card"},h("div",{class:"row"},h("span",{class:"tag "+f.severity},f.severity),h("strong",{class:"grow"},f.title),h("span",{class:"mut"},f.host+(f.port?":"+f.port:""))),

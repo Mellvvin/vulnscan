@@ -96,10 +96,12 @@ def _finding_card(eng: Engagement, f: dict) -> str:
     rows.append(f"<dt>OWASP</dt><dd>{base.esc(f['owasp'])} {base.esc(f['owasp_name'])}</dd>")
     if f.get("evidence"):
         rows.append(f"<dt>Evidence</dt><dd><code>{base.esc(f['evidence'])}</code></dd>")
-    mine = f'<div class="mine"><b>What it means</b>{base.esc(f["note"])}</div>' if f["note"] else ""
-    if f["fix"] or f["price"]:
+    note = f["note"] or f.get("suggest_note", "")
+    fix = f["fix"] or f.get("suggest_fix", "")
+    mine = f'<div class="mine"><b>What it means</b>{base.esc(note)}</div>' if note else ""
+    if fix or f["price"]:
         price = f' <span class="offer">{base.esc(money(eng, f["price"]))}</span>' if f["price"] else ""
-        mine += f'<div class="mine"><b>What I can do about it</b>{base.esc(f["fix"])}{price}</div>'
+        mine += f'<div class="mine"><b>What I can do about it</b>{base.esc(fix)}{price}</div>'
     return (f'<details class="f s-{f["severity"]}"><summary>{base._badge(f["severity"])}'
             f'<span><span class="main">{base.esc(f["title"])}</span>'
             f'<span class="where" style="display:block">{base.esc(where)}</span>'
@@ -212,10 +214,12 @@ def render_markdown(eng: Engagement, generated: Optional[datetime] = None) -> st
     for f in c["findings"]:
         where = f"{f['host']}:{f['port']}" if f.get("port") else f["host"]
         out += [f"### {base.SEV_WORD[f['severity']]}: {f['title']}", "", f"Where: {where}", "", f["description"], ""]
-        if f["note"]:
-            out += [f"What it means: {f['note']}", ""]
-        if f["fix"] or f["price"]:
-            out += [f"What I can do: {f['fix']} {money(eng, f['price'])}".rstrip(), ""]
+        note = f["note"] or f.get("suggest_note", "")
+        fix = f["fix"] or f.get("suggest_fix", "")
+        if note:
+            out += [f"What it means: {note}", ""]
+        if fix or f["price"]:
+            out += [f"What I can do: {fix} {money(eng, f['price'])}".rstrip(), ""]
         out += [f"How to fix: {f['remediation']}", ""]
     for r in c["manual_fail"]:
         out += [f"### {base.SEV_WORD[r['severity']]}: {r['area']}: {r['title']} (manual check)", "", r["look_for"], ""]
